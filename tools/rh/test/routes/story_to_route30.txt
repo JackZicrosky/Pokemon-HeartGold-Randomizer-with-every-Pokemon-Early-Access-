@@ -1,0 +1,28 @@
+# From the lab save (newgame_starter.txt) through the early story to Route 30, then an in-game save there:
+# Mom's Pokegear, Cherrygrove tour, Mr. Pokemon, the first Silver battle, Elm, Lyra's catching demo.
+# Usage: play.py ROM story_to_route30.txt OUTDIR lab.sav  (the last step exports the save: see save:)
+W600 A W300 A W300 A W500 pos nowild
+goto:4,13 goto:4,14 D16 W200 pos
+go:695,397 U16 W200 pos go:5,7 R4 A W60 mash:20 bmash:4 pos go:3,10 D16 W200 pos
+go:677,398 L16 W120 mash:15 bmash:4 pos
+# Cherrygrove: the Guide Gent's tour
+goto:580,398 goto:548,392 mash:60 mash:80 mash:80 mash:60 pos
+# Route 30: the Map Card and the Apricorn Box scenes interrupt the walk
+goto:549,336 mash:40 goto:549,336 mash:40 goto:549,336 mash:40 goto:549,336 pos shot:story_r30
+# Mr. Pokemon and Prof. Oak
+goto:568,295 U16 W200 mash:60 mash:60 mash:60 pos goto:4,9 D16 W200 mash:25 bmash:8 W100 pos
+# back to Cherrygrove: Silver
+goto:577,398 W200 shot:story_silver
+U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40 U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40
+U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40 U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40
+U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40 U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40
+U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40 U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40
+U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40 U4 W10 A W40 U4 W10 L4 W10 A W300 A W40 A W40
+mash:60 bmash:10 W300 pos
+# Elm's lab
+goto:684,394 mash:30 bmash:6 goto:684,394 mash:30 bmash:6 goto:684,394 U16 W200 mash:60 mash:60 mash:60 mash:40 B4 W30 B4 pos
+goto:4,13 goto:4,14 D16 W200 pos
+# Route 29: Lyra's catching demo
+goto:549,334 mash:60 mash:40 goto:549,334 mash:40 goto:549,334 pos shot:story_end
+# save the game (touch SAVE, confirm)
+T123,75 W90 A W90 A W1500 B4 W60 shot:story_saved

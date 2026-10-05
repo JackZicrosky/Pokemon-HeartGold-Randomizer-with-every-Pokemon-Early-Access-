@@ -16,7 +16,19 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dsharness import Harness  # noqa: E402
 
-FIELD_SYS_PTR = 0x023DE0F4
+def _symbol(name, default):
+    # addresses of hg-engine's variables move when overlay 129 changes: read them from the build's symbol list
+    ld = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'build', 'rom_gen.ld')
+    try:
+        for line in open(ld):
+            if line.startswith(name + ' = '):
+                return int(line.split('=')[1].strip().rstrip(';'), 0)
+    except OSError:
+        pass
+    return default
+
+
+FIELD_SYS_PTR = _symbol('gFieldSysPtr', 0x023DE0F4)
 RH_MAGIC = 0x52480001
 
 
@@ -150,6 +162,17 @@ def goto(h, m, tx, tz, budget=600):
     return False
 
 
+def find_all_rh_settings(m):
+    ram = bytes(m.read(0x02000000, 0x023FFFFF, 1, False))
+    key = RH_MAGIC.to_bytes(4, 'little')
+    out, i = [], ram.find(key)
+    while i >= 0:
+        if i % 4 == 0:
+            out.append(0x02000000 + i)
+        i = ram.find(key, i + 1)
+    return out
+
+
 def find_rh_settings(m):
     # the settings live in the save's misc block; find their magic in main RAM
     ram = bytes(m.read(0x02000000, 0x023FFFFF, 1, False)) if hasattr(m, 'read') else None
@@ -192,10 +215,8 @@ def main():
             {"poke8": h.emu.memory.write_byte, "poke16": h.emu.memory.write_short, "poke32": h.emu.memory.write_long}[kind](addr, v)
         elif t.startswith('rh:'):
             _, off, v = t.split(':')
-            if rh is None:
-                rh = find_rh_settings(h.emu.memory)
-                print('RhSettings at', hex(rh) if rh else None)
-            if rh:
+            # every copy: the save's, and the options screen's (which may linger in freed memory)
+            for rh in find_all_rh_settings(h.emu.memory):
                 h.emu.memory.write_byte(rh + int(off, 0), int(v, 0))
         elif t.startswith('findenc:'):
             # dump the loaded wild table: findenc:RATEBYTES (hex, e.g. 000f00193248 for New Bark)

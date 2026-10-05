@@ -36,10 +36,18 @@ class Harness:
     def __init__(self, rom, save=None):
         self.emu = DeSmuME()
         self.emu.open(rom)
-        if save:
-            import os
-            if os.path.exists(save):
-                self.emu.backup.import_file(save)
+        import os
+        import tempfile
+        if not save or not os.path.exists(save):
+            # a blank cartridge save: DeSmuME otherwise loads its own battery file for this ROM, which other runs
+            # write to
+            fd, blank = tempfile.mkstemp(suffix='.sav')
+            os.write(fd, b'\xff' * 0x80000)
+            os.close(fd)
+            self.emu.backup.import_file(blank)
+            os.remove(blank)
+        else:
+            self.emu.backup.import_file(save)
         self.frame = 0
 
     def run(self, n):

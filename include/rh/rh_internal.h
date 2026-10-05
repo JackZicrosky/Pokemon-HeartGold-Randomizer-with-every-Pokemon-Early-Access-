@@ -88,6 +88,17 @@ u32 LONG_CALL RH_StarterForSlot(u32 slot);                              // perso
 void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read
 u32 LONG_CALL RH_SettingsHash(void);                                    // hash of every setting (cache key)
 u32 LONG_CALL RH_EstimateEvoLevel(u32 from, u32 to);                    // FVX estimated evolution level
+u32 LONG_CALL RH_GrowthRate(u32 sp);                                    // current EXP curve
+void LONG_CALL RH_TransformEvolutions(u32 sp, u16 *data);
+// ---- moves (src/rh/rh_moves.c) ----
+struct BattleMove;
+void LONG_CALL RH_TransformMove(u32 move, struct BattleMove *bm);     // applied to every move data read
+void LONG_CALL RH_TransformLearnset(u32 sp, u32 *data);               // level-up learnset (u32 level << 16 | move)
+void LONG_CALL RH_TransformEggMoves(u32 sp, u16 *moves, u32 max);
+u32 LONG_CALL RH_MachineMove(u32 index, u32 vanilla);                 // TM move (index = item - ITEM_TM001)
+BOOL LONG_CALL RH_MachineCompat(u32 sp, u32 index, BOOL vanilla);     // TM / HM compatibility
+void LONG_CALL RH_TutorMoves(const u16 *vanilla, u16 *out, u32 count);
+BOOL LONG_CALL RH_TutorCompat(u32 sp, u32 slot, u32 move, BOOL vanilla);              // applied to every evolution data read (rh_evos.c)
 
 // ---- evolutions (src/rh/rh_species.c) ----
 u32 LONG_CALL RH_EvolveOnce(u32 sp, u32 hash);                          // a (current) evolution of sp, 0 = none

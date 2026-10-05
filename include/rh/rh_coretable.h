@@ -10,6 +10,11 @@ enum
 {
     RHCT_STARTER_FOR_SLOT,
     RHCT_SPECIES_KEY,
+    RHCT_TRANSFORM_MOVE,
+    RHCT_TRANSFORM_LEARNSET,
+    RHCT_TRANSFORM_EGG_MOVES,
+    RHCT_MACHINE_MOVE,
+    RHCT_MACHINE_COMPAT,
     RHCT_COUNT
 };
 
@@ -23,6 +28,31 @@ static inline u32 RHCT_StarterForSlot(u32 slot)
 static inline void RHCT_SpeciesKey(u32 sp, u16 *species, u16 *form)
 {
     ((void (*)(u32, u16 *, u16 *))RH_CORE_TABLE[RHCT_SPECIES_KEY])(sp, species, form);
+}
+
+static inline void RHCT_TransformMove(u32 move, void *battleMove)
+{
+    ((void (*)(u32, void *))RH_CORE_TABLE[RHCT_TRANSFORM_MOVE])(move, battleMove);
+}
+
+static inline void RHCT_TransformLearnset(u32 sp, u32 *data)
+{
+    ((void (*)(u32, u32 *))RH_CORE_TABLE[RHCT_TRANSFORM_LEARNSET])(sp, data);
+}
+
+static inline void RHCT_TransformEggMoves(u32 sp, u16 *moves, u32 max)
+{
+    ((void (*)(u32, u16 *, u32))RH_CORE_TABLE[RHCT_TRANSFORM_EGG_MOVES])(sp, moves, max);
+}
+
+static inline u32 RHCT_MachineMove(u32 index, u32 vanilla)
+{
+    return ((u32 (*)(u32, u32))RH_CORE_TABLE[RHCT_MACHINE_MOVE])(index, vanilla);
+}
+
+static inline BOOL RHCT_MachineCompat(u32 sp, u32 index, BOOL vanilla)
+{
+    return ((BOOL (*)(u32, u32, BOOL))RH_CORE_TABLE[RHCT_MACHINE_COMPAT])(sp, index, vanilla);
 }
 
 #endif // RH_CORETABLE_H

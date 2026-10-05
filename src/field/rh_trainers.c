@@ -653,7 +653,7 @@ static void BetterMoveset(u32 sp, u32 level, u16 *moves)
     for (i = ITEM_TM001; i <= ITEM_TM092; i++)
     {
         u32 idx = ItemToMachineMoveIndex(i);
-        if ((tm[idx / 32] >> (idx % 32)) & 1)
+        if (RH_MachineCompat(sp, idx, (tm[idx / 32] >> (idx % 32)) & 1))
             candidates[count++] = ItemToMachineMove(i);
     }
     for (i = 0; i < count; i++)
@@ -999,7 +999,7 @@ u32 RH_TrainerPartyOrder(u32 slot)
     // the team's last Pokemon (its ace) stays last
     if (!sActive || sTotal <= sOrigCount || sOrigCount == 0)
         return slot;
-    if (slot == sOrigCount - 1)
+    if (slot + 1 == sOrigCount)
         return sTotal - 1;
     if (slot >= sOrigCount)
         return slot - 1;

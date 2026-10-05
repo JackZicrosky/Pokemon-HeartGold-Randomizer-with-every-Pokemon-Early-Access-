@@ -6,4 +6,9 @@
 void *const gRhCoreTable[RHCT_COUNT] __attribute__((section(".rh_header"))) = {
     [RHCT_STARTER_FOR_SLOT] = (void *)RH_StarterForSlot,
     [RHCT_SPECIES_KEY]      = (void *)RH_SpeciesKey,
+    [RHCT_TRANSFORM_MOVE]   = (void *)RH_TransformMove,
+    [RHCT_TRANSFORM_LEARNSET] = (void *)RH_TransformLearnset,
+    [RHCT_TRANSFORM_EGG_MOVES] = (void *)RH_TransformEggMoves,
+    [RHCT_MACHINE_MOVE]     = (void *)RH_MachineMove,
+    [RHCT_MACHINE_COMPAT]   = (void *)RH_MachineCompat,
 };

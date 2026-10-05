@@ -22,6 +22,7 @@
 #include "save.h"
 #include "script.h"
 #include "sound.h"
+#include "rh/rh_coretable.h"
 
 extern u32 word_to_store_form_at;
 struct OVERWORLD_TAG *LONG_CALL ObjectEvent_GetGraphicsInfo(u32 spriteId);
@@ -971,6 +972,7 @@ u8 LONG_CALL LoadEggMoves(struct PartyPokemon *pokemon, u16 *dest)
 {
     u16 species = PokeOtherFormMonsNoGet(GetMonData(pokemon, MON_DATA_SPECIES, NULL), GetMonData(pokemon, MON_DATA_FORM, NULL));
     ReadFromNarcMemberByIdPair(dest, ARC_EGG_MOVES, 0, species * MAX_EGG_MOVES * sizeof(u16), MAX_EGG_MOVES * sizeof(u16));
+    RHCT_TransformEggMoves(species, dest, MAX_EGG_MOVES); // romhack: random movesets
 
     u8 count = 0;
     while (count < MAX_EGG_MOVES && dest[count] != 0xFFFF) {
@@ -2187,7 +2189,8 @@ BOOL GetMonMachineMoveCompat(struct PartyPokemon *pp, u16 machineMoveIndex)
     u32 buf[MACHINE_LEARNSETS_BITFIELD_COUNT];
     ReadFromNarcMemberByIdPair(buf, ARC_CODE_ADDONS, CODE_ADDON_MACHINE_LEARNSETS, PokeOtherFormMonsNoGet(species, form) * MACHINE_LEARNSETS_BITFIELD_COUNT * sizeof(u32), MACHINE_LEARNSETS_BITFIELD_COUNT * sizeof(u32));
 
-    return (buf[machineMoveIndex / 32] >> (machineMoveIndex % 32)) & 1;
+    // romhack: TM / HM compatibility options
+    return RHCT_MachineCompat(PokeOtherFormMonsNoGet(species, form), machineMoveIndex, (buf[machineMoveIndex / 32] >> (machineMoveIndex % 32)) & 1);
 }
 
 /**
@@ -2196,6 +2199,7 @@ BOOL GetMonMachineMoveCompat(struct PartyPokemon *pp, u16 machineMoveIndex)
 void LONG_CALL LoadLevelUpLearnset_HandleAlternateForm(int species, int form, u32 *levelUpLearnset)
 {
     ReadFromNarcMemberByIdPair(levelUpLearnset, ARC_LEVELUP_LEARNSETS, 0, PokeOtherFormMonsNoGet(species, form) * MAX_LEVELUP_MOVES * sizeof(u32), MAX_LEVELUP_MOVES * sizeof(u32));
+    RHCT_TransformLearnset(PokeOtherFormMonsNoGet(species, form), levelUpLearnset); // romhack: random movesets
 
 #ifdef BLOCK_LEARNING_UNIMPLEMENTED_MOVES
     // shift moves to skip the unimplemented ones

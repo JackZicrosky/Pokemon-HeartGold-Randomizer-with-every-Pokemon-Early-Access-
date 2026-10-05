@@ -1,8 +1,7 @@
-// FVX estimated evolution levels by (pre BST, post BST). Copied from the FireRed/Emerald romhack (generated there by tools/rh/gen_evo_levels.py from the vanilla level-up evolutions).
-#define RH_EVO_BST_LO 100
-#define RH_EVO_BST_STEP 10
-#define RH_EVO_BST_N 71
-static const u8 sRhEvoLevelEstimate[71][71] = {
+// romhack: FVX estimated evolution levels by (pre BST, post BST), a028 member 22. Copied from the FireRed/Emerald romhack
+// (generated there by tools/rh/gen_evo_levels.py from the vanilla level-up evolutions).
+#include "../../include/types.h"
+const u8 sRhEvoLevelEstimate[71][71] = {
     {3,3,3,3,3,3,3,4,4,4,4,4,4,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,12,13,14,15,15,16,17,18,19,20,21,22,23,25,26,27,28,30,31,33,34,36,38,39,41,43,45,47,49,51,53,56,58,60,63,65,68,70,73,76,79,82},
     {3,3,3,3,4,4,4,4,4,4,4,5,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,11,12,13,13,14,15,16,17,18,18,19,20,22,23,24,25,26,28,29,30,32,33,35,36,38,40,42,43,45,47,49,52,54,56,58,61,63,65,68,71,73,76,79,82},
     {4,4,4,4,4,4,4,4,5,5,5,5,5,6,6,6,7,7,7,8,8,8,9,9,10,11,11,12,12,13,14,15,15,16,17,18,19,20,21,22,23,24,25,27,28,29,31,32,34,35,37,39,40,42,44,46,48,50,52,54,56,59,61,63,66,68,71,74,77,79,82},

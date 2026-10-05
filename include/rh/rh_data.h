@@ -32,6 +32,22 @@ struct RhSpeciesInfo
 // Wild encounter pairs (a028 member 21, tools/rh/gen_rh_wild.py). Zone mode m: 0 whole game, 1 whole game split
 // by encounter type, 2 location, 3 location split, 4 map, 5 map split, 6 encounter set.
 #define CODE_ADDON_RH_WILD 21
+
+// a028 member 22: FVX estimated evolution levels, u8 [RH_EVO_BST_N][RH_EVO_BST_N] by (pre BST, post BST)
+#define CODE_ADDON_RH_EVO_LEVELS 22
+#define RH_EVO_BST_LO 100
+#define RH_EVO_BST_STEP 10
+#define RH_EVO_BST_N 71
+
+// a028 member 23: the randomizers' move pool (tools/rh/gen_rh_moves.py): u16 count, u16 pad, then the moves by id
+#define CODE_ADDON_RH_MOVES 23
+#define RH_MOVE_MAX 800
+#define RHM_BROKEN      0x01     // FVX "No Game-Breaking Moves"
+#define RHM_GEN1_BROKEN 0x02     // ... with Gen 1 battle mechanics
+#define RHM_NO_DAMAGING 0x04     // never a forced / "good" attack (FVX bannedForDamagingMove)
+#define RHM_HM          0x08
+#define RHM_HITS(f)     ((f) >> 4)
+struct RhMove { u16 move; u8 flags; u8 pad; };
 #define RH_WILD_BANKS 142
 #define RH_WILD_PAIRS 1375
 struct RhWildPair

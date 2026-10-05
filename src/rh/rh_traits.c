@@ -204,7 +204,6 @@ static u32 FirstVanillaEvolution(u32 sp)
 
 // FVX's estimated evolution level (AbstractRomHandler.findEvolutionLevel), looked up by (pre BST, post BST) and
 // kept between the levels of the Pokemon's own neighbouring evolutions.
-#include "rh_evo_levels.h"
 
 static u32 RawEstimate(u32 from, u32 to)
 {
@@ -212,7 +211,11 @@ static u32 RawEstimate(u32 from, u32 to)
     s32 j = ((s32)RH_SpeciesBST(to) - RH_EVO_BST_LO + RH_EVO_BST_STEP / 2) / RH_EVO_BST_STEP;
     i = i < 0 ? 0 : (i > RH_EVO_BST_N - 1 ? RH_EVO_BST_N - 1 : i);
     j = j < 0 ? 0 : (j > RH_EVO_BST_N - 1 ? RH_EVO_BST_N - 1 : j);
-    return sRhEvoLevelEstimate[i][j];
+    {
+        u8 v = 0;
+        ReadFromNarcMemberByIdPair(&v, ARC_CODE_ADDONS, CODE_ADDON_RH_EVO_LEVELS, i * RH_EVO_BST_N + j, 1);
+        return v;
+    }
 }
 
 u32 RH_EstimateEvoLevel(u32 from, u32 to)
@@ -494,6 +497,14 @@ static u32 GrowthRate(u32 sp, u32 vanilla)
         break;
     }
     return sCurveOfSetting[S->expCurve];
+}
+
+// The species' EXP curve as the game sees it (after "Standardize EXP Curves").
+u32 RH_GrowthRate(u32 sp)
+{
+    u8 v = 0;
+    ReadFromNarcMemberByIdPair(&v, ARC_PERSONAL, sp, 0x13, 1);
+    return S->enabled ? GrowthRate(sp, v) : v;
 }
 
 // ---------------------------------------------------------------------------

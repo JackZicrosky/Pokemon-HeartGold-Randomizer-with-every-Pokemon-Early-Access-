@@ -10,3 +10,12 @@ u32 __attribute__((section(".rh_boot"))) RH_Boot(void)
     HandleLoadOverlay(OVERLAY_RH_CORE, 0);
     return 0;
 }
+
+// Resident RAM for the randomizer core's per-settings tables (the core's ITCM is too small for them). Overlay 129
+// stays loaded for the whole game.
+static u32 sRhResident[RH_RESIDENT_SIZE / 4];
+
+void *RH_Resident(void)
+{
+    return sRhResident;
+}

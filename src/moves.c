@@ -8,6 +8,7 @@
 #include "../include/constants/item.h"
 #include "../include/pokemon.h"
 #include "../include/types.h"
+#include "../include/rh/rh_coretable.h"
 
 // brackets are there so we can possibly come back and make constants for them
 u16 move_effect_to_subscripts[] = {
@@ -233,6 +234,10 @@ u16 move_effect_to_subscripts[] = {
 void GetMoveDataTable(void *dest)
 {
     ReadFromNarcMemberByIdPair(dest, ARC_MOVE_DATA, 0, 0, sizeof(struct BattleMove) * (NUM_OF_MOVES + 1));
+    // romhack: randomized move data (Moves & Movesets)
+    for (u32 i = 1; i <= NUM_OF_MOVES; i++) {
+        RHCT_TransformMove(i, (struct BattleMove *)dest + i);
+    }
 }
 
 /**

@@ -7,6 +7,7 @@
 #include "../include/message.h"
 #include "../include/script.h"
 #include "../include/types.h"
+#include "../include/rh/rh_coretable.h"
 
 #define GFX_ITEM_DUMMY_ID  ((MAX_TOTAL_ITEM_NUM) * 2 + 2)
 #define GFX_ITEM_RETURN_ID ((MAX_TOTAL_ITEM_NUM + 1) * 2 + 4)
@@ -539,7 +540,13 @@ u16 ItemToMachineMove(u16 itemId)
     if (index >= NELEMS(sMachineMoves)) {
         return MOVE_NONE;
     }
-    return sMachineMoves[index];
+    return RHCT_MachineMove(index, sMachineMoves[index]); // romhack: random TM moves
+}
+
+// romhack: the unrandomized move of a TM / HM (for the randomizer core)
+u16 ItemToMachineMoveVanilla(u32 index)
+{
+    return index < NELEMS(sMachineMoves) ? sMachineMoves[index] : MOVE_NONE;
 }
 
 BOOL MoveIsHM(u16 moveId)

@@ -21,6 +21,7 @@
 #include "save.h"
 #include "script.h"
 #include "window.h"
+#include "rh/rh_internal.h"
 
 #define MOVE_TUTOR_NPC_FRONTIER_TOP_LEFT     0
 #define MOVE_TUTOR_NPC_FRONTIER_TOP_RIGHT    1
@@ -88,9 +89,36 @@ TutorMove sTutorMoves[] = {
     { MOVE_HEADBUTT, 0, MOVE_TUTOR_NPC_HEADBUTT },
 };
 
+// romhack: the tutors teach their randomized moves (Move Tutor Moves). The table is rewritten in place (the field
+// overlay reloads it from the ROM each time it is loaded, so the original moves are read before the first change).
+static u16 sRhVanillaTutor[64];
+static u8 sRhTutorsDone;
+static u32 sRhTutorKey;
+
+static void RH_UpdateTutorMoves(void)
+{
+    u16 vanilla[NELEMS(sTutorMoves)], out[NELEMS(sTutorMoves)];
+    u32 j, key = RH_SettingsHash();
+    if (sRhTutorsDone && sRhTutorKey == key)
+        return;
+    if (!sRhTutorsDone)
+    {
+        for (j = 0; j < NELEMS(sTutorMoves); j++)
+            sRhVanillaTutor[j] = sTutorMoves[j].move;
+    }
+    for (j = 0; j < NELEMS(sTutorMoves); j++)
+        vanilla[j] = sRhVanillaTutor[j];
+    RH_TutorMoves(vanilla, out, NELEMS(sTutorMoves));
+    for (j = 0; j < NELEMS(sTutorMoves); j++)
+        sTutorMoves[j].move = out[j];
+    sRhTutorsDone = TRUE;
+    sRhTutorKey = key;
+}
+
 u16 LONG_CALL GetLearnableTutorMoves(struct PartyPokemon *mon, u32 moveTutorNpc, u8 dest[])
 {
     int i;
+    RH_UpdateTutorMoves();
     u16 currentMoves[MAX_MON_MOVES];
     for (i = 0; i < MAX_MON_MOVES; i++) {
         currentMoves[i] = GetMonData(mon, MON_DATA_MOVE1 + i, NULL);
@@ -104,7 +132,7 @@ u16 LONG_CALL GetLearnableTutorMoves(struct PartyPokemon *mon, u32 moveTutorNpc,
 
     u16 numLearnableMoves = 0;
     for (u32 j = 0; j < NELEMS(sTutorMoves); j++) {
-        BOOL canLearnMove = (tutorLearnset[j / 32] >> (j % 32)) & 1;
+        BOOL canLearnMove = RH_TutorCompat(PokeOtherFormMonsNoGet(species, form), j, sTutorMoves[j].move, (tutorLearnset[j / 32] >> (j % 32)) & 1);
         if (canLearnMove && moveTutorNpc == sTutorMoves[j].tutorNpc) {
             for (i = 0; i < MAX_MON_MOVES; i++) {
                 if (currentMoves[i] == sTutorMoves[j].move) {
