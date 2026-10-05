@@ -29,6 +29,30 @@ struct RhSpeciesInfo
     u8 flags2;    // RH_SPF2_*
 };
 
+// Wild encounter pairs (a028 member 21, tools/rh/gen_rh_wild.py). Zone mode m: 0 whole game, 1 whole game split
+// by encounter type, 2 location, 3 location split, 4 map, 5 map split, 6 encounter set.
+#define CODE_ADDON_RH_WILD 21
+#define RH_WILD_BANKS 142
+#define RH_WILD_PAIRS 1375
+struct RhWildPair
+{
+    u16 species;     // personal index
+    u8 bank;         // encounter bank (= map)
+    u8 area;         // 0 land, 1 surfing, 2 Rock Smash, 3 fishing
+    u8 low;          // lowest average level in this set
+    u8 location;
+    u16 rank[7];     // Catch Em' All rank of (zone, species) per mode
+    u16 zoneRank[7]; // rank of the species inside its zone per mode (1-to-1 picks)
+    u8 theme[7];     // type every Pokemon of the zone has (vanilla), 0xFF = none
+    u8 zoneLow[7];   // lowest level of this species in the zone
+    u8 relatives;    // bit m: a relative (same family) lives in the same zone in mode m
+};
+struct RhWildFile
+{
+    u16 bankStart[RH_WILD_BANKS + 1];
+    struct RhWildPair pairs[RH_WILD_PAIRS];
+};
+
 #define RH_KEY_SPECIES(key) ((key) & 0x7FF)
 #define RH_KEY_FORM(key)    ((key) >> 11)
 #define RH_INFO_GEN(i)      ((i)->gsc & 15)

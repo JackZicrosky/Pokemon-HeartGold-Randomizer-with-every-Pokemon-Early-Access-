@@ -1,0 +1,6 @@
+# from the lab save: home -> Mom gives the Pokegear -> west exit -> Route 29
+W600 A W300 A W300 A W500 pos rh:158:1
+go:4,13 go:4,14 D16 W200 pos go:695,397 U16 W200 pos
+go:5,7 R4 A W60 mash:20 bmash:4 shot:p_mom pos
+go:3,10 D16 W200 pos
+go:677,398 L16 W120 mash:15 bmash:4 pos go:670,398 pos go:660,398 pos shot:p_r29

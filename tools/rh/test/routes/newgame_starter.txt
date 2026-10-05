@@ -1,0 +1,11 @@
+# power-on -> options (defaults) -> Oak -> room -> Mom -> Elm's lab -> starter (front ball)
+# maps: 64 bedroom, 63 house 1F, 60 New Bark Town, 61 Elm's lab
+W600 A W300 A W400 shot:r_menu
+S W20 A W250 mash:60 S W30 A W60 waitmap:64 W60 shot:r_room
+go:3,4 L16 L16 W150 pos mash:12 bmash:6 W30 shot:r_mom
+go:3,5 go:4,5 go:4,6 go:3,6 go:3,10 D16 W150 pos mash:12 bmash:6 W30 shot:r_outside
+go:688,394 go:684,394 U16 W150 pos shot:r_lab
+go:4,7 W30 mash:30 bmash:10 W60 pos shot:r_elm
+go:8,5 U4 A W100 shot:r_machine
+T30,40 W80 T128,120 W100 T128,120 W100 T128,105 W120 shot:r_got bmash:30 W30 pos shot:r_after
+T123,73 W60 shot:sv1 A W60 shot:sv2 A W1500 shot:sv3 B W60 save:/mnt/c/Users/Zicro/AppData/Local/Temp/claude/D--AI-shit-Claude/9c5d6aa8-7796-4afc-a50d-e09085c0bb0b/scratchpad/lab.sav

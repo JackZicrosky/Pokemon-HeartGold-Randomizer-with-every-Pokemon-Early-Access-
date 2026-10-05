@@ -200,4 +200,8 @@ void RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId)
         gRhDebug.lastPersonal = fileId;
         RH_TransformPersonal(fileId, dest);
     }
+    else if (narcId == 37)                                    // wild encounter table of a map (a/0/3/7)
+    {
+        RH_TransformEncounters(fileId, dest);
+    }
 }

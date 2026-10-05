@@ -594,9 +594,11 @@ endif
 
 	@echo "romhack species info:"
 	cp $(RH_SPECIES_INFO_BIN) $(RH_SPECIES_INFO_TARGET)
+	cp $(RH_WILD_BIN) $(RH_WILD_TARGET)
 
 	@echo "romhack species info:"
 	cp $(RH_SPECIES_INFO_BIN) $(RH_SPECIES_INFO_TARGET)
+	cp $(RH_WILD_BIN) $(RH_WILD_TARGET)
 
 update_machine_moves: $(VENV_ACTIVATE)
 	$(PYTHON) scripts/update_machine_moves.py --descriptions --sprites

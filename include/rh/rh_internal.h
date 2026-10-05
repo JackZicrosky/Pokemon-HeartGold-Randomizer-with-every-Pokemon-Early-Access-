@@ -43,7 +43,7 @@ BOOL LONG_CALL RH_PoolAllowed(const struct RhSpeciesInfo *info);       // the Po
 
 // A whole-table session: the species table loaded into a heap buffer for many lookups (picks).
 // RH_BeginSession/RH_EndSession nest; the table is freed by the outermost RH_EndSession.
-void LONG_CALL RH_BeginSession(u32 heapId);
+void LONG_CALL RH_BeginSession(u32 heapId);   // heapId 0xFFFF = RH_SessionHeap()
 void LONG_CALL RH_EndSession(void);
 
 // ---- picking (src/rh/rh_pick.c) ----
@@ -84,6 +84,18 @@ u32 LONG_CALL RH_TypeIndexOf(u32 type);
 u32 LONG_CALL RH_MonTypeAt(u32 i);
 BOOL LONG_CALL RH_TypeBeats(u32 attackType, u32 defendType);           // super effective (rh_sources.c)
 u32 LONG_CALL RH_StarterForSlot(u32 slot);                              // personal index in Elm's ball 0-2
-void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read                                      // the 18 types in a fixed order
+void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read
+
+// ---- evolutions (src/rh/rh_species.c) ----
+u32 LONG_CALL RH_EvolveOnce(u32 sp, u32 hash);                          // a (current) evolution of sp, 0 = none
+u32 LONG_CALL RH_EvolveTimes(u32 sp, u32 times);
+u32 LONG_CALL RH_HeapFree(u32 heapId);                                  // 0 if the heap doesn't exist
+u32 LONG_CALL RH_SessionHeap(void);                                     // a heap with room for temporary tables
+
+// ---- wild (src/rh/rh_wild.c) ----
+u32 LONG_CALL RH_WildForm(u32 species);                                 // form picked for this species on this map
+u32 LONG_CALL RH_ModifyWildLevel(u32 level);
+struct EncounterData;
+void LONG_CALL RH_TransformEncounters(u32 bank, struct EncounterData *d);   // a map's table as it loads
 
 #endif // RH_INTERNAL_H

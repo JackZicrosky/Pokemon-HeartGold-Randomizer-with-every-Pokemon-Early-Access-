@@ -29,13 +29,31 @@ BOOL RH_GetInfo(u32 sp, struct RhSpeciesInfo *out)
     return TRUE;
 }
 
+// Free bytes of a heap, 0 if it doesn't exist (the game's own call asserts on missing heaps).
+u32 RH_HeapFree(u32 heapId)
+{
+    u32 *handles = *(u32 **)0x021D1584;                       // sHeapInfo.heapHandles
+    u8 *idxs = *(u8 **)(0x021D1584 + 0x10);                   // sHeapInfo.heapIdxs
+    if (heapId > 0x80 || handles == NULL || idxs == NULL || handles[idxs[heapId]] == 0)
+        return 0;
+    return GF_ExpHeap_FndGetTotalFreeSize(heapId);
+}
+
+// The field heap when it exists (lots of room), else the root heap.
+u32 RH_SessionHeap(void)
+{
+    return RH_HeapFree(4) > 0x10000 ? 4 : 3;
+}
+
 void RH_BeginSession(u32 heapId)
 {
+    if (heapId == 0xFFFF)
+        heapId = RH_SessionHeap();
     if (sSessionDepth++ == 0)
     {
         u32 size = INFO_COUNT * sizeof(struct RhSpeciesInfo);
         // only when the heap has plenty of room; without the table every lookup reads the cartridge instead
-        if (GF_ExpHeap_FndGetTotalFreeSize(heapId) > size + 0x4000)
+        if (RH_HeapFree(heapId) > size + 0x4000)
         {
             sTable = sys_AllocMemory(heapId, size);
             if (sTable != NULL)
@@ -120,4 +138,47 @@ BOOL RH_PoolAllowed(const struct RhSpeciesInfo *i)
     case RH_POOL_ALL:    return !(i->flags & RH_SPF_VARIANT);
     default:             return TRUE;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Evolutions
+// ---------------------------------------------------------------------------
+// The evolution table as the game reads it (so random evolutions count), as personal indexes.
+static u32 Evolutions(u32 sp, u16 *targets)
+{
+    u16 e[9 * 3 + 1];
+    u32 i, n = 0;
+    ReadWholeNarcMemberByIdPair(e, ARC_EVOLUTIONS, sp);
+    for (i = 0; i < 9; i++)
+    {
+        u32 t = e[i * 3 + 2];
+        if (e[i * 3] == 0 || t == 0)
+            continue;
+        t = (t >> 11) ? RH_SpeciesIndex(t & 0x7FF, t >> 11) : t;
+        if (t != sp)
+            targets[n++] = t;
+    }
+    return n;
+}
+
+u32 RH_EvolveOnce(u32 sp, u32 hash)
+{
+    u16 t[9];
+    u32 n;
+    if (sp == 0 || sp >= INFO_COUNT)
+        return 0;
+    n = Evolutions(sp, t);
+    return n ? t[hash % n] : 0;
+}
+
+u32 RH_EvolveTimes(u32 sp, u32 times)
+{
+    while (times--)
+    {
+        u32 next = RH_EvolveOnce(sp, RH_Hash(SALT_EVO, sp, times));
+        if (next == 0)
+            break;
+        sp = next;
+    }
+    return sp;
 }

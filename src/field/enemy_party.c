@@ -1,3 +1,4 @@
+#include "../../include/rh/rh_internal.h"
 #include "config.h"
 #include "debug.h"
 #include "types.h"
@@ -447,6 +448,11 @@ BOOL LONG_CALL AddWildPartyPokemon(int inTarget, EncounterInfo *encounterInfo, s
         change_form = 1;
         form_no = space_for_setmondata; //(species & 0xF800) >> 11;
         space_for_setmondata = 0;
+    }
+    else if (RH_WildForm(species) != 0) {
+        // romhack: the randomizer picked a form (regional / alternate / Mega) for this map's wild Pokemon
+        change_form = 1;
+        form_no = RH_WildForm(species);
     }
 
     WildMonSetRandomHeldItem(encounterPartyPokemon, encounterBattleParam->fight_type, range);
