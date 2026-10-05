@@ -6,6 +6,8 @@
 #include "map_events_internal.h"
 #include "pokemon.h"
 #include "script.h"
+#include "rh/rh_internal.h"
+#include "rh/rh_items.h"
 
 typedef struct HiddenItemData {
     u16 itemId;
@@ -80,7 +82,7 @@ BOOL LONG_CALL GetHiddenItemParams(ScriptEnvironment *env, u16 script)
     var8001 = FieldSysGetAttrAddrInternal(env, SCRIPTENV_SPECIAL_VAR_8001);
     var8002 = FieldSysGetAttrAddrInternal(env, SCRIPTENV_SPECIAL_VAR_8002);
 
-    *var8000 = hiddenItem.itemId;
+    *var8000 = RH_FieldItem(hiddenItem.itemId, RH_FIELD_KEY_HIDDEN + hiddenItem.index); // romhack: Field Items
     *var8001 = hiddenItem.quantity;
     *var8002 = HiddenItemScriptNoToFlagId(script);
     return TRUE;

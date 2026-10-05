@@ -260,3 +260,25 @@ $(RH_MOVES_BIN): data/rh/RhMoves.c include/rh/rh_data.h
 	$(OBJCOPY) -O binary build/rh/RhMoves.o $@
 
 NARC_FILES += $(RH_MOVES_BIN)
+
+# romhack: tools/rh/gen_rh_items.py, a028 member 25
+RH_FIELD_ITEMS_TARGET := $(BUILD)/a028/9_25
+RH_FIELD_ITEMS_BIN := build/rh/RhFieldItems.bin
+
+$(RH_FIELD_ITEMS_BIN): data/rh/RhFieldItems.c include/rh/rh_data.h
+	mkdir -p build/rh
+	$(CC) $(CFLAGS) -c $< -o build/rh/RhFieldItems.o
+	$(OBJCOPY) -O binary build/rh/RhFieldItems.o $@
+
+NARC_FILES += $(RH_FIELD_ITEMS_BIN)
+
+# romhack: tools/rh/gen_rh_items.py, a028 member 24
+RH_ITEMS_TARGET := $(BUILD)/a028/9_24
+RH_ITEMS_BIN := build/rh/RhItems.bin
+
+$(RH_ITEMS_BIN): data/rh/RhItems.c include/rh/rh_data.h
+	mkdir -p build/rh
+	$(CC) $(CFLAGS) -c $< -o build/rh/RhItems.o
+	$(OBJCOPY) -O binary build/rh/RhItems.o $@
+
+NARC_FILES += $(RH_ITEMS_BIN)

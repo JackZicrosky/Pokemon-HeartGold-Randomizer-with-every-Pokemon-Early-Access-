@@ -6,6 +6,8 @@
 #include "pokemon.h"
 #include "save.h"
 #include "script.h"
+#include "rh/rh_internal.h"
+#include "rh/rh_items.h"
 
 #ifdef MART_EXPANSION
 
@@ -168,7 +170,7 @@ BOOL ScrCmd_MartBuy(SCRIPTCONTEXT *ctx)
 {
     u16 unused UNUSED = ScriptGetVar(ctx);
 
-    u16 items[NELEMS(sBadgeMart) + 1];
+    u16 items[NELEMS(sBadgeMart) + 2];
     u8 badgeCount = 0;
     u8 index = 0;
     u32 i;
@@ -187,7 +189,31 @@ BOOL ScrCmd_MartBuy(SCRIPTCONTEXT *ctx)
     }
 
     items[index] = 0xFFFF;
+    RH_FilterMart(items, NELEMS(items));                        // romhack: Nuzlocke / Add Cheap Rare Candies
     InitMartUI(ctx->taskman, ctx->fsys, items, 0, 0, 0, 0); // this doesn't honor price overrides
+    return TRUE;
+}
+
+// romhack: every specialty mart in the order of the vanilla table at 0210FA3C (repoints), for ScrCmd_SpecialMartBuy
+static const u16 *const sRhSpecialMarts[] = {
+    sCherrygroveCityMart, sVioletCityMart, sAzaleaCityMart, sGoldenrodDepartmentLower2F, sGoldenrodDepartmentUpper2F,
+    sGoldenrodDepartment3F, sGoldenrodDepartment4F, sGoldenrodDepartment5F, sGoldenrodHerbs, sEcruteakMart,
+    sOlivineMart, sCianwoodPharmacy, sBlackthornAndBattleFrontierMart, sIndigoPlateau, sVermilionAndSafariMart,
+    sSaffronMart, sLavenderMart, sCeruleanMart, sCeladonDepartmentUpper2F, sCeladonDepartmentLower2F,
+    sCeladonDepartment3F, sCeladonDepartment4F, sCeladonDepartmentLeft5F, sCeladonDepartmentRight5F, sFuschiaMart,
+    sPewterMart, sViridianMart, sMtMoonSquare, sMahoganyPreRocketHideout, sMahoganyPostRocketHideout,
+};
+
+static u16 sRhMartBuffer[64];
+
+// romhack: specialty marts sell their (randomized) stock (Shop Items)
+BOOL ScrCmd_SpecialMartBuy(SCRIPTCONTEXT *ctx)
+{
+    u16 which = ScriptGetVar(ctx);
+    if (which >= NELEMS(sRhSpecialMarts))
+        which = 0;
+    RH_BuildMart(sRhSpecialMarts, NELEMS(sRhSpecialMarts), which, sRhMartBuffer, NELEMS(sRhMartBuffer));
+    InitMartUI(ctx->taskman, ctx->fsys, sRhMartBuffer, 0, 0, 0, 0);
     return TRUE;
 }
 

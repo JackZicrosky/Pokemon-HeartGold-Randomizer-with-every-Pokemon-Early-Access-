@@ -48,6 +48,23 @@ struct RhSpeciesInfo
 #define RHM_HM          0x08
 #define RHM_HITS(f)     ((f) >> 4)
 struct RhMove { u16 move; u8 flags; u8 pad; };
+
+// a028 member 24: the random item pool (tools/rh/gen_rh_items.py): u16 count, u16 pad, then the items by id
+#define CODE_ADDON_RH_ITEMS 24
+#define RHI_BAD         0x01     // FVX junk ("Ban Bad Items")
+#define RHI_OVERPOWERED 0x02     // "Ban Overpowered Items"
+#define RHI_EVO         0x04     // used in an evolution
+#define RHI_X           0x08     // X items
+#define RHI_REGULAR     0x10     // what every Poke Mart sells (balls, medicine, repels)
+#define RHI_SELL_ONLY   0x20     // only good for selling
+#define RHI_CONSUMABLE  0x40     // consumable held items (berries, herbs, Focus Sash...)
+#define RHI_HELD        0x80     // has a hold effect
+struct RhItem { u16 item; u8 flags; u8 pocket; };
+
+// a028 member 25: every item ball (key = its number) and hidden item (key = 0x1000 + index), for "Shuffle"
+#define CODE_ADDON_RH_FIELD_ITEMS 25
+#define RH_FIELD_KEY_HIDDEN 0x1000
+struct RhFieldItem { u16 key; u16 item; };
 #define RH_WILD_BANKS 142
 #define RH_WILD_PAIRS 1375
 struct RhWildPair
