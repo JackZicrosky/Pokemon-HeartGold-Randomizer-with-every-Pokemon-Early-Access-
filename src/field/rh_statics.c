@@ -42,3 +42,40 @@ BOOL ScrCmd_GiveMon(SCRIPTCONTEXT *ctx)
     *ret = GiveMon(HEAPID_FIELD2, fsys->savedata, species, level, form, ability, heldItem, mapsec, 24);
     return FALSE;
 }
+
+// ---------------------------------------------------------------------------
+// In-game trades: the trade NPC's offered / requested species (vanilla script commands 471 / 472) come from the
+// randomized trade data.
+// ---------------------------------------------------------------------------
+#define SCRIPTENV_MISC_DATA_PTR 21
+
+typedef struct NPCTradeAppData {         // pret include/npc_trade.h
+    NPCTrade *trade_dat;
+    void *mon;
+    void *profile;
+    u32 tradeno;
+    u32 heapID;
+} NPCTradeAppData;
+
+static NPCTrade *TradeData(SCRIPTCONTEXT *ctx)
+{
+    NPCTradeAppData **work = FieldSysGetAttrAddr(ctx->fsys, SCRIPTENV_MISC_DATA_PTR);
+    RH_TransformTrade((*work)->tradeno, (s32 *)(*work)->trade_dat);
+    return (*work)->trade_dat;
+}
+
+BOOL ScrCmd_GetOfferedSpecies(SCRIPTCONTEXT *ctx)
+{
+    NPCTrade *t = TradeData(ctx);
+    u16 *ret = ScriptGetVarPointer(ctx);
+    *ret = t->give_species;
+    return FALSE;
+}
+
+BOOL ScrCmd_NPCTradeGetReqSpecies(SCRIPTCONTEXT *ctx)
+{
+    NPCTrade *t = TradeData(ctx);
+    u16 *ret = ScriptGetVarPointer(ctx);
+    *ret = t->ask_species;
+    return FALSE;
+}

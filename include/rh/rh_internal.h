@@ -86,7 +86,8 @@ BOOL LONG_CALL RH_TypeBeats(u32 attackType, u32 defendType);           // super 
 u32 LONG_CALL RH_TypeEffect(u32 attackType, u32 defendType);           // 0 none, 1 half, 2 normal, 3 double
 u32 LONG_CALL RH_StarterForSlot(u32 slot);
 u32 LONG_CALL RH_StaticSpecies(u32 species, u32 map);                   // static Pokemon replacement (species | form << 11)
-u32 LONG_CALL RH_StaticLevel(u32 level);                              // personal index in Elm's ball 0-2
+u32 LONG_CALL RH_StaticLevel(u32 level);
+void LONG_CALL RH_TransformTrade(u32 tradeno, s32 *tradeData);         // struct NPCTrade as s32 words                              // personal index in Elm's ball 0-2
 void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read
 u32 LONG_CALL RH_SettingsHash(void);                                    // hash of every setting (cache key)
 u32 LONG_CALL RH_EstimateEvoLevel(u32 from, u32 to);                    // FVX estimated evolution level

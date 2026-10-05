@@ -17,6 +17,7 @@ enum
     RHCT_MACHINE_COMPAT,
     RHCT_STATIC_SPECIES,
     RHCT_STATIC_LEVEL,
+    RHCT_TRANSFORM_TRADE,
     RHCT_COUNT
 };
 
@@ -65,6 +66,11 @@ static inline u32 RHCT_StaticSpecies(u32 species, u32 map)
 static inline u32 RHCT_StaticLevel(u32 level)
 {
     return ((u32 (*)(u32))RH_CORE_TABLE[RHCT_STATIC_LEVEL])(level);
+}
+
+static inline void RHCT_TransformTrade(u32 tradeno, void *tradeData)
+{
+    ((void (*)(u32, void *))RH_CORE_TABLE[RHCT_TRANSFORM_TRADE])(tradeno, tradeData);
 }
 
 #endif // RH_CORETABLE_H

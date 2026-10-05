@@ -573,6 +573,8 @@ arm9 PartyMenu_LearnMoveToSlot 0208254C 3
 arm9 ScrCmd_MartBuy 02048060 1
 arm9 ScrCmd_SpecialMartBuy 02048158 1
 arm9 ScrCmd_GiveMon 0204D088 1
+arm9 ScrCmd_GetOfferedSpecies 020452B0 1
+arm9 ScrCmd_NPCTradeGetReqSpecies 020452E0 1
 #endif
 
 # expand heal blocked moves

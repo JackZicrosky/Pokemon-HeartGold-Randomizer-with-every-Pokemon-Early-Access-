@@ -306,3 +306,89 @@ u32 RH_StaticLevel(u32 level)
     l = RH_ApplyPercent(l, S->staticLevelMod);
     return l < 1 ? 1 : (l > 100 ? 100 : l);
 }
+
+// ---------------------------------------------------------------------------
+// In-game trades (FVX): every trade gives (and, with "Requested & Given", asks for) a different random Pokemon,
+// never one used twice. The loans (Kenya, Kirk's Shuckle...: given = requested) stay. Trade data: a/1/1/2.
+// ---------------------------------------------------------------------------
+#define NARC_NPC_TRADE 112
+#define TRADE_COUNT 13
+#define TRADE_WORDS 21                                       // struct NPCTrade, s32 fields
+enum { TR_GIVE = 0, TR_IV = 1, TR_OTID = 8, TR_ITEM = 15, TR_SHEEN = 17, TR_ASK = 19 };
+#define TRADE_DONE 0x40000000                                // in the (unused) sheen field: already randomized
+
+static u32 sTradeKey;
+static u8 sTradesBuilt;
+static u16 sTradeGive[TRADE_COUNT], sTradeAsk[TRADE_COUNT];
+
+static BOOL TradeUnused(u32 sp)
+{
+    u32 i;
+    for (i = 0; i < sTradesBuilt; i++)
+        if (sTradeGive[i] == sp || sTradeAsk[i] == sp)
+            return FALSE;
+    return TRUE;
+}
+
+static void BuildTrades(void)
+{
+    u32 i;
+    RH_BeginSession(0xFFFF);
+    for (i = 0; i < TRADE_COUNT; i++)
+    {
+        s32 t[TRADE_WORDS];
+        struct RhFilter f;
+        u32 r;
+        ReadFromNarcMemberByIdPair(t, NARC_NPC_TRADE, i, 0, sizeof(t));
+        sTradesBuilt = i;
+        sTradeGive[i] = t[TR_GIVE];
+        sTradeAsk[i] = t[TR_ASK];
+        if (t[TR_GIVE] == t[TR_ASK])
+            continue;                                        // a loan
+        RH_FilterInit(&f);
+        f.extra = TradeUnused;
+        if (S->trades >= 2 && (r = RH_PickWithFilter(&f, RH_Hash(SALT_TRADE, i, 1))) != 0)
+            sTradeAsk[i] = r;
+        RH_FilterExclude(&f, sTradeAsk[i]);
+        if ((r = RH_PickWithFilter(&f, RH_Hash(SALT_TRADE, i, 0))) != 0)
+            sTradeGive[i] = r;
+    }
+    RH_EndSession();
+    sTradesBuilt = TRADE_COUNT;
+    sTradeKey = RH_SettingsHash() + 6;
+}
+
+static u32 RandomHeldItem(u32 hash)
+{
+    u16 hdr[2];
+    u32 tries;
+    ReadFromNarcMemberByIdPair(hdr, ARC_CODE_ADDONS, CODE_ADDON_RH_ITEMS, 0, 4);
+    for (tries = 0; tries < 64 && hdr[0] != 0; tries++)
+    {
+        struct RhItem it;
+        ReadFromNarcMemberByIdPair(&it, ARC_CODE_ADDONS, CODE_ADDON_RH_ITEMS, 4 + (RH_Hash(hash, tries, 0x17) % hdr[0]) * sizeof(it), sizeof(it));
+        if ((it.flags & RHI_HELD) && !(it.flags & RHI_BAD))
+            return it.item;
+    }
+    return 0;
+}
+
+// The trade's data (struct NPCTrade, as s32 words) as the trade NPC uses it.
+void RH_TransformTrade(u32 tradeno, s32 *t)
+{
+    u32 i;
+    if (!RH_Active() || S->trades == 0 || tradeno >= TRADE_COUNT || (t[TR_SHEEN] & TRADE_DONE) || t[TR_GIVE] == t[TR_ASK])
+        return;
+    if (sTradeKey != RH_SettingsHash() + 6)
+        BuildTrades();
+    t[TR_SHEEN] |= TRADE_DONE;
+    t[TR_GIVE] = sTradeGive[tradeno];
+    t[TR_ASK] = sTradeAsk[tradeno];
+    if (S->tradeIVs)
+        for (i = 0; i < 6; i++)
+            t[TR_IV + i] = RH_Hash(SALT_IV, tradeno, i) % 32;
+    if (S->tradeOTs)
+        t[TR_OTID] = RH_Hash(SALT_OT, tradeno, 1) & 0xFFFF;  // FVX: a random 16-bit trainer ID
+    if (S->tradeItems && (i = RandomHeldItem(RH_Hash(SALT_HELD_ITEM, 0x7700 + tradeno, 0))) != 0)
+        t[TR_ITEM] = i;
+}
