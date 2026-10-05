@@ -22,8 +22,8 @@ ALL_C_SRCS += $(wildcard $(C_SUBDIR)/$1/*.c)
 ALL_ASM_SRCS += $(wildcard $(ASM_SUBDIR)/$1/*.s)
 
 
-$(BUILD)/$1_linked.o:$(patsubst $(C_SUBDIR)/%.c,$(BUILD)/%.o,$(wildcard $(C_SUBDIR)/$1/*.c)) $(patsubst $(ASM_SUBDIR)/%.s,$(BUILD)/%.o,$(wildcard $(ASM_SUBDIR)/$1/*.s)) $(BUILD)/rom_gen.ld
-	$(LD) $(BUILD)/rom_gen.ld -T $(C_SUBDIR)/$1/linker.ld -o $(BUILD)/$1_linked.o $(patsubst $(C_SUBDIR)/%.c,$(BUILD)/%.o,$(wildcard $(C_SUBDIR)/$1/*.c)) $(patsubst $(ASM_SUBDIR)/%.s,$(BUILD)/%.o,$(wildcard $(ASM_SUBDIR)/$1/*.s)) $(THUMB_HELP)
+$(BUILD)/$1_linked.o:$(patsubst $(C_SUBDIR)/%.c,$(BUILD)/%.o,$(wildcard $(C_SUBDIR)/$1/*.c)) $(patsubst $(ASM_SUBDIR)/%.s,$(BUILD)/%.o,$(wildcard $(ASM_SUBDIR)/$1/*.s)) $(BUILD)/$(if $(filter rh,$1),rom_gen.ld,rom_gen_rh.ld)
+	$(LD) $(BUILD)/$(if $(filter rh,$1),rom_gen.ld,rom_gen_rh.ld) -T $(C_SUBDIR)/$1/linker.ld -o $(BUILD)/$1_linked.o $(patsubst $(C_SUBDIR)/%.c,$(BUILD)/%.o,$(wildcard $(C_SUBDIR)/$1/*.c)) $(patsubst $(ASM_SUBDIR)/%.s,$(BUILD)/%.o,$(wildcard $(ASM_SUBDIR)/$1/*.s)) $(THUMB_HELP)
 
 $(BUILD)/output_$1.bin:$(BUILD)/$1_linked.o
 	$(OBJCOPY) -O binary $(BUILD)/$1_linked.o $(BUILD)/output_$1.bin
@@ -37,8 +37,13 @@ endif
 
 CODE_BUILD_DIRS += $(BUILD)/$(INDIVIDUAL)/
 
-$(BUILD)/rom_gen_battle.ld:$(battle_LINK) $(battle_OUTPUT) $(BUILD)/rom_gen.ld
-	cp $(BUILD)/rom_gen.ld $(BUILD)/rom_gen_battle.ld
+# romhack: the randomizer core overlay (src/rh, in ITCM) links first so every other overlay can call it
+$(BUILD)/rom_gen_rh.ld:$(BUILD)/rh_linked.o $(BUILD)/rom_gen.ld
+	cp $(BUILD)/rom_gen.ld $(BUILD)/rom_gen_rh.ld
+	$(PYTHON) scripts/generate_ld.py $(BUILD)/rom_gen_rh.ld $(BUILD)/rh_linked.o
+
+$(BUILD)/rom_gen_battle.ld:$(battle_LINK) $(battle_OUTPUT) $(BUILD)/rom_gen_rh.ld
+	cp $(BUILD)/rom_gen_rh.ld $(BUILD)/rom_gen_battle.ld
 	$(PYTHON) scripts/generate_ld.py $(BUILD)/rom_gen_battle.ld $(battle_LINK)
 
 

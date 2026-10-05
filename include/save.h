@@ -8,6 +8,7 @@
 
 #include "pokemon.h"
 #include "rtc.h"
+#include "rh/rh_settings.h"
 
 #define OT_ID_PRESET 1
 
@@ -119,6 +120,9 @@ struct SAVE_MISC_DATA {
     u8 isMonStored[NUM_OF_STORED_MONS];
 
 #endif
+
+    // romhack: randomizer settings (src/rh)
+    struct RhSettings rh;
 };
 
 // vars

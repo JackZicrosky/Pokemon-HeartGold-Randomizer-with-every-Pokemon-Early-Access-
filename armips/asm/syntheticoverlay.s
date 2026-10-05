@@ -22,8 +22,7 @@ load_arm9_expansion: // load the narc subfile with arm9 expansion data
     mov r1, #2
     bl HandleLoadOverlay129 // HandleLoadOverlay(129, 2) // noinit load
 
-    mov r0, #0
-    mov r0, #0
+    bl 0x023D8060 // romhack: RH_Boot (src/rh_boot.c, first function of overlay 129) loads overlay 152; returns 0
     mov r1, #3
     pop {r2, pc}
 

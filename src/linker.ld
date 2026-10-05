@@ -12,6 +12,7 @@ SECTIONS {
                 FILL (0xABCD)
 
                 __text_start = . ;
+                *(.rh_boot) /* romhack: RH_Boot must be the first function (0x023D8060), see syntheticoverlay.s */
                 *(.init)
                 *(.text)
                 *(.ctors)
