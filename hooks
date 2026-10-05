@@ -665,3 +665,6 @@ arm9 RH_RunTextPrinter 020202EC 2
 
 # romhack: vanilla script command 490 (a no-op) becomes the romhack's script command (src/field/rh_items.c)
 arm9 ScrCmd_RhSpecial 0204EE20 1
+
+# romhack: Prof. Elm's starter screen names the Pokemon in each ball (src/rh_starter_text.c)
+0061 RH_StarterPrintMsg 021E6D78
