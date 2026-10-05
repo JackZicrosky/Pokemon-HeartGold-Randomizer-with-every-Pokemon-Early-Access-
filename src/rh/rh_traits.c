@@ -33,7 +33,7 @@ u32 RH_RandomMonType(u32 hash)
 }
 
 // Hash of every setting: cache key for results that depend on many options.
-static u32 SettingsHash(void)
+u32 RH_SettingsHash(void)
 {
     const u8 *b = (const u8 *)S;
     u32 i, h = 2166136261u;
@@ -202,6 +202,35 @@ static u32 FirstVanillaEvolution(u32 sp)
     return (e[2] >> 11) ? RH_SpeciesIndex(e[2] & 0x7FF, e[2] >> 11) : e[2];
 }
 
+// FVX's estimated evolution level (AbstractRomHandler.findEvolutionLevel), looked up by (pre BST, post BST) and
+// kept between the levels of the Pokemon's own neighbouring evolutions.
+#include "rh_evo_levels.h"
+
+static u32 RawEstimate(u32 from, u32 to)
+{
+    s32 i = ((s32)RH_SpeciesBST(from) - RH_EVO_BST_LO + RH_EVO_BST_STEP / 2) / RH_EVO_BST_STEP;
+    s32 j = ((s32)RH_SpeciesBST(to) - RH_EVO_BST_LO + RH_EVO_BST_STEP / 2) / RH_EVO_BST_STEP;
+    i = i < 0 ? 0 : (i > RH_EVO_BST_N - 1 ? RH_EVO_BST_N - 1 : i);
+    j = j < 0 ? 0 : (j > RH_EVO_BST_N - 1 ? RH_EVO_BST_N - 1 : j);
+    return sRhEvoLevelEstimate[i][j];
+}
+
+u32 RH_EstimateEvoLevel(u32 from, u32 to)
+{
+    u32 est = RawEstimate(from, to), pre = RH_PreEvo(from), next = FirstVanillaEvolution(to), v;
+    if (pre != 0)
+    {
+        v = (RawEstimate(pre, from) * 5 + 3) / 4;
+        est = est > v ? est : v;
+    }
+    if (next != 0)
+    {
+        v = (RawEstimate(to, next) * 4 + 4) / 5;
+        est = est < v ? est : v;
+    }
+    return est < 2 ? 2 : (est > 100 ? 100 : est);
+}
+
 static u32 ShuffleGroup(const struct RhSpeciesInfo *m)
 {
     u32 g = 0;
@@ -313,7 +342,7 @@ u32 RH_SpeciesBST(u32 sp)
         return 0;
     if (!S->enabled || S->bstMode == 0)
         return RH_VanillaBST(sp);
-    key = SettingsHash();
+    key = RH_SettingsHash();
     for (i = 0; i < BST_CACHE; i++)
         if (sBstCache[i].sp == sp && sBstCache[i].key == key)
             return sBstCache[i].bst;
@@ -644,7 +673,7 @@ void RH_TransformPersonal(u32 sp, u8 *data)
         return;
     if (s->baseStats == 0 && s->bstMode == 0 && s->types == 0 && s->abilities == 0 && s->expCurve == 0)
         return;
-    key = SettingsHash();
+    key = RH_SettingsHash();
     for (i = 0; i < PERSONAL_CACHE; i++)
         if (sPersonalCache[i].sp == sp && sPersonalCache[i].key == key)
             c = &sPersonalCache[i];

@@ -83,8 +83,11 @@ u32 LONG_CALL RH_RandomMonType(u32 hash);
 u32 LONG_CALL RH_TypeIndexOf(u32 type);
 u32 LONG_CALL RH_MonTypeAt(u32 i);
 BOOL LONG_CALL RH_TypeBeats(u32 attackType, u32 defendType);           // super effective (rh_sources.c)
+u32 LONG_CALL RH_TypeEffect(u32 attackType, u32 defendType);           // 0 none, 1 half, 2 normal, 3 double
 u32 LONG_CALL RH_StarterForSlot(u32 slot);                              // personal index in Elm's ball 0-2
 void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read
+u32 LONG_CALL RH_SettingsHash(void);                                    // hash of every setting (cache key)
+u32 LONG_CALL RH_EstimateEvoLevel(u32 from, u32 to);                    // FVX estimated evolution level
 
 // ---- evolutions (src/rh/rh_species.c) ----
 u32 LONG_CALL RH_EvolveOnce(u32 sp, u32 hash);                          // a (current) evolution of sp, 0 = none

@@ -1,4 +1,5 @@
 #include "../../include/rh/rh_internal.h"
+#include "../../include/rh/rh_trainers.h"
 #include "config.h"
 #include "debug.h"
 #include "types.h"
@@ -92,6 +93,11 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
     u8 randomorder_flag = pokecount & TRAINER_DATA_RANDOM_PARTY_ORDER;
     pokecount &= 0x7f;
 
+    // romhack: Foe Pokemon randomizer (src/field/rh_trainers.c); "Additional Pokemon" raise the count
+    u8 origcount = pokecount;
+    pokecount = RH_TrainerPartyBegin(bp->trainer_id[num], bp->trainer_data[num].data_type, buf, origcount, bp->fight_type);
+    u8 dt, rhflags;
+
     // goal:  get rid of massive switch statement with each individual byte.  make the trainer type a bitfield
     u32 id;
     u16 species = 0, adjustedSpecies = 0, item = 0, ability = 0, level = 0, ball = 0, hp = 0, atk = 0, def = 0, speed = 0, spatk = 0, spdef = 0, ab1 = 0, ab2 = 0;
@@ -117,7 +123,7 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         }
     } else {
         for (i = 0; i < pokecount; i++) {
-            partyOrder[i] = i;
+            partyOrder[RH_TrainerPartyOrder(i)] = i; // romhack: Additional Pokemon go before the ace
         }
     }
 
@@ -132,6 +138,12 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
 
     for (i = 0; i < pokecount; i++) {
         mons[i] = AllocMonZeroed(heapID);
+        // romhack: an Additional Pokemon has no data of its own - read the first record's basic fields, which
+        // RH_TrainerMon replaces
+        dt = (i < origcount) ? bp->trainer_data[num].data_type : 0;
+        if (i >= origcount) {
+            offset = 0;
+        }
         // ivs field
         pow = buf[offset];
         offset++;
@@ -142,7 +154,9 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
 
         // level field
         level = buf[offset] | (buf[offset + 1] << 8);
-        gLastPokemonLevelForMoneyCalc = level; // ends up being the last level at the end of the loop that we use for the money calc loop default case
+        if (i < origcount) {
+            gLastPokemonLevelForMoneyCalc = level; // ends up being the last level at the end of the loop that we use for the money calc loop default case
+        }
         offset += 2;
 
         // species field
@@ -152,13 +166,13 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         species &= 0x07FF;
 
         // item field - conditional
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ITEMS) {
+        if (dt & TRAINER_DATA_TYPE_ITEMS) {
             item = buf[offset] | (buf[offset + 1] << 8);
             offset += 2;
         }
 
         // moves field - conditional
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_MOVES) {
+        if (dt & TRAINER_DATA_TYPE_MOVES) {
             for (j = 0; j < 4; j++) {
                 moves[j] = buf[offset] | (buf[offset + 1] << 8);
                 offset += 2;
@@ -166,19 +180,19 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         }
 
         // ability field
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ABILITY) {
+        if (dt & TRAINER_DATA_TYPE_ABILITY) {
             ability = buf[offset] | (buf[offset + 1] << 8);
             offset += 2;
         }
 
         // custom ball field
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_BALL) {
+        if (dt & TRAINER_DATA_TYPE_BALL) {
             ball = buf[offset] | (buf[offset + 1] << 8);
             offset += 2;
         }
 
         // ivs and evs fields
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_IV_EV_SET) {
+        if (dt & TRAINER_DATA_TYPE_IV_EV_SET) {
             for (j = 0; j < 6; j++) {
                 ivnums[j] = buf[offset];
                 if (ivnums[j] > 31) {
@@ -194,19 +208,19 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         }
 
         // nature field
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_NATURE_SET) {
+        if (dt & TRAINER_DATA_TYPE_NATURE_SET) {
             nature = buf[offset];
             offset++;
         }
 
         // shiny lock field
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_SHINY_LOCK) {
+        if (dt & TRAINER_DATA_TYPE_SHINY_LOCK) {
             shinylock = buf[offset];
             offset++;
         }
 
         // reads extra flags from the trainer pokemon file
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ADDITIONAL_FLAGS) {
+        if (dt & TRAINER_DATA_TYPE_ADDITIONAL_FLAGS) {
             additionalflags = buf[offset] | (buf[offset + 1] << 8) | (buf[offset + 2] << 16) | (buf[offset + 3] << 24);
             offset += 4;
 
@@ -273,6 +287,35 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         ballseal = buf[offset] | (buf[offset + 1] << 8);
         offset += 2;
 
+        // romhack: the Foe Pokemon randomizer (species, level, held item, moves, ability...)
+        {
+            struct RhTrainerMon rhm;
+            rhm.species = species;
+            rhm.form = form_no;
+            rhm.level = level;
+            rhm.item = item;
+            rhm.ability = ability;
+            rhm.ivs = pow;
+            rhm.abilitySlot = abilityslot;
+            rhm.flags = ((dt & TRAINER_DATA_TYPE_ITEMS) ? RHTM_ITEM : 0) | ((dt & TRAINER_DATA_TYPE_MOVES) ? RHTM_MOVES : 0)
+                      | ((dt & TRAINER_DATA_TYPE_ABILITY) ? RHTM_ABILITY : 0);
+            for (j = 0; j < 4; j++) {
+                rhm.moves[j] = moves[j];
+            }
+            RH_TrainerMon(i, &rhm);
+            species = rhm.species;
+            form_no = rhm.form;
+            level = rhm.level;
+            item = rhm.item;
+            ability = rhm.ability;
+            pow = rhm.ivs;
+            abilityslot = rhm.abilitySlot;
+            for (j = 0; j < 4; j++) {
+                moves[j] = rhm.moves[j];
+            }
+            rhflags = rhm.flags;
+        }
+
         // now set mon data
         try_force_gender_maybe(species, form_no, abilityslot, &rnd_tmp);
         rnd = pow + level + species + bp->trainer_id[num];
@@ -306,10 +349,10 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
             SetMonData(mons[i], MON_DATA_ABILITY, (u16 *)&hiddenability);
         }
 
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ITEMS) {
+        if (rhflags & RHTM_ITEM) {
             SetMonData(mons[i], MON_DATA_HELD_ITEM, &item);
         }
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_MOVES) {
+        if (rhflags & RHTM_MOVES) {
             for (j = 0; j < 4; j++) {
 #ifdef BLOCK_LEARNING_UNIMPLEMENTED_MOVES
                 if (IsMoveUnimplemented(moves[j])) {
@@ -320,13 +363,13 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
             }
         }
         TrainerCBSet(ballseal, mons[i], heapID);
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ABILITY) {
+        if (rhflags & RHTM_ABILITY) {
             SetMonData(mons[i], MON_DATA_ABILITY, &ability);
         }
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_BALL) {
+        if (dt & TRAINER_DATA_TYPE_BALL) {
             SetMonData(mons[i], MON_DATA_POKEBALL, &ball);
         }
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_IV_EV_SET) {
+        if (dt & TRAINER_DATA_TYPE_IV_EV_SET) {
             for (j = 0; j < 6; j++) {
                 SetMonData(mons[i], MON_DATA_HP_IV + j, &ivnums[j]);
             }
@@ -335,13 +378,13 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
                 SetMonData(mons[i], MON_DATA_HP_EV + j, &evnums[j]);
             }
         }
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_NATURE_SET) {
+        if (dt & TRAINER_DATA_TYPE_NATURE_SET) {
             u32 pid = GetMonData(mons[i], MON_DATA_PERSONALITY, NULL);
             u8 currentNature = pid % 25;
             pid = pid + nature - currentNature;
             SetMonData(mons[i], MON_DATA_PERSONALITY, &pid);
         }
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_SHINY_LOCK) {
+        if (dt & TRAINER_DATA_TYPE_SHINY_LOCK) {
             u32 pid = GetMonData(mons[i], MON_DATA_PERSONALITY, NULL);
             if (shinylock != 0) {
                 do {
@@ -350,12 +393,23 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
                 SetMonData(mons[i], MON_DATA_OTID, &id);
             }
         }
+        if (rhflags & RHTM_SHINY) { // romhack: Random Shiny Trainer Mons
+            u32 pid = GetMonData(mons[i], MON_DATA_PERSONALITY, NULL);
+            do {
+                id = (gf_rand() | (gf_rand() << 16));
+            } while (!SHINY_CHECK(id, pid));
+            SetMonData(mons[i], MON_DATA_OTID, &id);
+        }
 
         ChangeToBattleForm(mons[i]);
 
         RecalcPartyPokemonStats(mons[i]); // recalculate stats here
 
-        if (bp->trainer_data[num].data_type & TRAINER_DATA_TYPE_ADDITIONAL_FLAGS) {
+        if (rhflags & RHTM_NO_NICKNAME) {
+            // romhack: another species - its own stats, PP and name instead of the ones set for the original
+            additionalflags &= TRAINER_DATA_EXTRA_TYPE_STATUS;
+        }
+        if (dt & TRAINER_DATA_TYPE_ADDITIONAL_FLAGS) {
             if (additionalflags & TRAINER_DATA_EXTRA_TYPE_STATUS) {
                 SetMonData(mons[i], MON_DATA_STATUS, &status);
             }
@@ -393,8 +447,12 @@ void MakeTrainerPokemonParty(struct BATTLE_PARAM *bp, int num, int heapID)
         TrainerMonHandleFrustration(mons[i]);
     }
 
+    RH_TrainerPartyEnd();
+
     for (i = 0; i < pokecount; i++) {
         PokeParty_Add(bp->poke_party[num], mons[partyOrder[i]]);
+    }
+    for (i = 0; i < pokecount; i++) { // romhack: freed after all are added (the order can refer to any of them)
         sys_FreeMemoryEz(mons[i]);
     }
 

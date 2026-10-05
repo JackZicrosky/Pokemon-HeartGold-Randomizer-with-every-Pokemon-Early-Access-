@@ -9,6 +9,7 @@
 #   poke8:ADDR:V poke16:ADDR:V poke32:ADDR:V   write memory      rh:FIELD_OFFSET:V   write a byte of the RhSettings
 #   save:FILE         export the cartridge save          state:FILE  savestate (only valid for this build)
 #   pos               print the map / coordinates
+#   go:X,Z            walk greedily to a tile            goto:X,Z   walk a path found in the map data (mapnav.py)
 import os
 import sys
 
@@ -59,6 +60,93 @@ def go(h, m, tx, tz, budget=200):
         q = player(m)
         stuck = stuck + 1 if q and q[1:] == (x, z) else 0
     print('go: gave up at', player(m), 'target', (tx, tz))
+    return False
+
+
+_MAPDATA = None
+NO_WILD = False          # step "nowild": no wild encounters while walking (test only)
+
+
+def object_tiles(m):
+    """Tiles taken by the map's other objects (people, trees, item balls...), from the MapObjectManager."""
+    out = set()
+    fs = m.read_long(FIELD_SYS_PTR)
+    if not (0x02000000 <= fs < 0x02400000):
+        return out
+    av = m.read_long(fs + 0x40)
+    me = m.read_long(av + 0x30) if 0x02000000 <= av < 0x02400000 else 0
+    if not (0x02000000 <= me < 0x02400000):
+        return out
+    mgr = m.read_long(me + 0xB4)
+    if not (0x02000000 <= mgr < 0x02400000):
+        return out
+    count, objs = m.read_long(mgr + 4), m.read_long(mgr + 0x124)
+    for i in range(min(count, 128)):
+        o = objs + i * 0x12C
+        if o != me and m.read_long(o) & 1:
+            out.add((m.read_long(o + 0x64), m.read_long(o + 0x6C)))
+    return out
+
+
+def clear_encounter_rates(h, m):
+    fs = m.read_long(FIELD_SYS_PTR)
+    if fs and 0x02000000 <= fs < 0x02400000:
+        events = m.read_long(fs + 0x14)
+        if 0x02000000 <= events < 0x02400000:
+            for i in range(6):                   # walk, surf, rock smash, rods
+                h.emu.memory.write_byte(events + 0x920 + i, 0)
+
+
+def goto(h, m, tx, tz, budget=600):
+    """Walk to tile (tx, tz) on the current map along a path through the map's collision data (mapnav.py).
+    Tiles that turn out to be blocked (people, objects) are avoided on the next try."""
+    global _MAPDATA
+    from mapnav import MapData
+    if _MAPDATA is None:
+        _MAPDATA = MapData()
+    blocked = set()
+    stuck = 0
+    for _ in range(budget):
+        p = player(m)
+        if p is None:
+            h.run(10)
+            continue
+        mapid, x, z = p
+        if (x, z) == (tx, tz):
+            return True
+        objs = object_tiles(m) - {(tx, tz)}
+        steps = _MAPDATA.path(mapid, (x, z), (tx, tz), blocked | objs)
+        if not steps and blocked:
+            blocked = set()                      # people move: forget the tiles found blocked and try again
+            steps = _MAPDATA.path(mapid, (x, z), (tx, tz), objs)
+        if not steps:
+            print('goto: no path from', p, 'to', (tx, tz))
+            return False
+        k = steps[0]
+        if NO_WILD:
+            clear_encounter_rates(h, m)
+        for attempt in range(3):
+            h.hold(k, 16)
+            h.run(8)
+            q = player(m)
+            if q is None or q[1:] != (x, z):
+                break
+            if attempt == 1:
+                h.hold('B', 4)                   # maybe a message is open
+                h.run(20)
+        else:
+            d = {'L': (-1, 0), 'R': (1, 0), 'U': (0, -1), 'D': (0, 1)}[k]
+            blocked.add((x + d[0], z + d[1]))
+            stuck += 1
+            if stuck >= 5:                       # a scene or battle has taken over
+                print('goto: stopped at', player(m), 'target', (tx, tz))
+                return False
+            continue
+        stuck = 0
+        if q is not None and _MAPDATA.matrix_id(q[0]) != _MAPDATA.matrix_id(mapid):
+            print('goto: entered map', q[0])
+            return False
+    print('goto: gave up at', player(m), 'target', (tx, tz))
     return False
 
 
@@ -123,6 +211,12 @@ def main():
         elif t.startswith('go:'):
             x, z = t[3:].split(',')
             go(h, m, int(x), int(z))
+        elif t == 'nowild':
+            global NO_WILD
+            NO_WILD = True
+        elif t.startswith('goto:'):
+            x, z = t[5:].split(',')
+            goto(h, m, int(x), int(z))
         elif t.startswith('waitmap:'):
             # press A (or the given key) until the player is on map N: waitmap:N[:KEY[:MAXPRESSES]]
             parts = t.split(':')

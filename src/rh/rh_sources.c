@@ -36,6 +36,12 @@ BOOL RH_TypeBeats(u32 a, u32 b)
     return sChart[RH_TypeIndexOf(a)][RH_TypeIndexOf(b)] == 3;
 }
 
+// 0 = no effect, 1 = not very effective, 2 = normal, 3 = super effective
+u32 RH_TypeEffect(u32 a, u32 b)
+{
+    return sChart[RH_TypeIndexOf(a)][RH_TypeIndexOf(b)];
+}
+
 // ---------------------------------------------------------------------------
 // Starters
 // ---------------------------------------------------------------------------
