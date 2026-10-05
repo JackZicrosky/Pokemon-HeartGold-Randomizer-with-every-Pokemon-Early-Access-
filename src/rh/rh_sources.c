@@ -2,6 +2,7 @@
 #include "../../include/types.h"
 #include "../../include/save.h"
 #include "../../include/constants/species.h"
+#include "../../include/constants/file.h"
 #include "../../include/rh/rh_internal.h"
 
 // ---------------------------------------------------------------------------
@@ -219,4 +220,89 @@ u32 RH_StarterForSlot(u32 slot)
     if (sStarterKey != StarterKey())
         BuildStarters();
     return sStarters[slot];
+}
+
+// ---------------------------------------------------------------------------
+// Static Pokemon (FVX): every static encounter / gift / egg / prize / roamer of UPR FVX's HeartGold list (a028 member
+// 26, tools/rh/gen_rh_statics.py) gets its own replacement, never one used twice.
+// ---------------------------------------------------------------------------
+#define STATIC_MAX 64
+static u32 sStaticKey;
+static u8 sStaticCount, sStaticsBuilt;
+static struct RhStatic sStaticTable[STATIC_MAX];
+static u16 sStaticResult[STATIC_MAX];
+
+static BOOL StaticNotUsedYet(u32 sp)
+{
+    u32 i;
+    for (i = 0; i < sStaticsBuilt; i++)
+        if (sStaticResult[i] == sp)
+            return FALSE;
+    return TRUE;
+}
+
+static void BuildStatics(void)
+{
+    u16 hdr[2];
+    u32 i;
+    ReadFromNarcMemberByIdPair(hdr, ARC_CODE_ADDONS, CODE_ADDON_RH_STATICS, 0, 4);
+    sStaticCount = hdr[0] < STATIC_MAX ? hdr[0] : STATIC_MAX;
+    ReadFromNarcMemberByIdPair(sStaticTable, ARC_CODE_ADDONS, CODE_ADDON_RH_STATICS, 4, sStaticCount * sizeof(struct RhStatic));
+    RH_BeginSession(0xFFFF);
+    for (i = 0; i < sStaticCount; i++)
+    {
+        u32 sp = sStaticTable[i].species, bst = 0, result;
+        struct RhFilter f;
+        sStaticsBuilt = i;
+        RH_FilterInit(&f);
+        f.extra = StaticNotUsedYet;
+        // roamers can't have forms; the others follow "Allow Alternate Formes"
+        f.allowVariants = sStaticTable[i].map != 0xFFFF && S->staticAllowAltFormes;
+        RH_FilterExclude(&f, sp);                            // always a different Pokemon (FVX banSamePokemon)
+        switch (S->statics)
+        {
+        case 1:                                              // Swap Legendaries & Swap Standards
+            f.legend = RH_IsLegendary(sp) ? 2 : 1;
+            break;
+        case 3:                                              // Similar Strength
+            if (!(S->staticRandomize600 && RH_SpeciesBST(sp) >= 600))
+                bst = RH_SpeciesBST(sp);                     // "Randomize 600+ BST": those get a purely random pick
+            break;
+        }
+        result = RH_PickSpeciesNearBst(&f, RH_Hash(SALT_STATIC_SLOT, i, 0), bst);
+        if (result != 0 && sStaticTable[i].map == 0xFFFF && RH_SpeciesIndex(result, 0) != result)
+            result = 0;
+        sStaticResult[i] = result ? result : sp;
+    }
+    RH_EndSession();
+    sStaticsBuilt = sStaticCount;
+    sStaticKey = RH_SettingsHash() + 5;
+}
+
+// species (form bits allowed) on map (0xFFFF = a roamer) -> its replacement, species | form << 11
+u32 RH_StaticSpecies(u32 species, u32 map)
+{
+    u32 i, base = species & 0x7FF;
+    u16 sp, form;
+    if (!RH_Active() || S->statics == 0)
+        return species;
+    if (sStaticKey != RH_SettingsHash() + 5)
+        BuildStatics();
+    for (i = 0; i < sStaticCount; i++)
+        if (sStaticTable[i].map == map && sStaticTable[i].species == base)
+        {
+            RH_SpeciesKey(sStaticResult[i], &sp, &form);
+            return sp | (form << 11);
+        }
+    return species;
+}
+
+// Static Level Modifier (FVX: works with the statics unchanged too)
+u32 RH_StaticLevel(u32 level)
+{
+    s32 l = level;
+    if (!RH_Active() || !S->staticLevelModOn)
+        return level;
+    l = RH_ApplyPercent(l, S->staticLevelMod);
+    return l < 1 ? 1 : (l > 100 ? 100 : l);
 }

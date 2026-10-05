@@ -1,0 +1,50 @@
+# UPR FVX (github.com/upr-fvx/universal-pokemon-randomizer-fvx) gen4_offsets.ini, [HeartGold (U)]: the static Pokemon lines
+StaticPokemon{}={Species=[104:0x108], Level=[104:0x138, 104:0x12C]} // Lugia
+StaticPokemon{}={Species=[21:0xD1], Level=[21:0xF5, 21:0x101]} // Ho-oh
+StaticPokemon{}={Species=[216:0x58F, 216:0x6E8, 216:0x708, 24:0x67, 24:0xB4, 24:0x314, 24:0x320, 24:0xD4], Level=[216:0x70A, 24:0x322]} // Suicune
+StaticPokemon{}={Species=[14:0x2F, 14:0x3B], Level=[14:0x3D]} // Articuno
+StaticPokemon{}={Species=[191:0x26B, 191:0x277], Level=[191:0x279]} // Zapdos
+StaticPokemon{}={Species=[106:0x2F, 106:0x3B], Level=[106:0x3D]} // Moltres
+StaticPokemon{}={Species=[11:0x2F, 11:0x3B], Level=[11:0x3D]} // Mewtwo
+StaticPokemon{}={Species=[134:0xA3, 134:0xB4], Level=[134:0xB6]} // Kyogre
+StaticPokemon{}={Species=[133:0xA3, 133:0xB4], Level=[133:0xB6]} // Groudon
+StaticPokemon{}={Species=[135:0xDA, 135:0xEB, 135:0x62, 135:0x98], Level=[135:0xED]} // Rayquaza
+StaticPokemon{}={Species=[131:0x43A, 131:0x67C, 131:0x872, 131:0x8E4, 131:0x958, 131:0x963], Level=[131:0x965]} // Dialga
+StaticPokemon{}={Species=[131:0x4A2, 131:0x695, 131:0x88D, 131:0x8FA, 131:0x97F, 131:0x98A], Level=[131:0x98C]} // Palkia
+StaticPokemon{}={Species=[131:0x50A, 131:0x9A4], Level=[131:0x9A6], Forme=[131:0x9AA]} // Giratina-O
+StaticPokemon{}={Species=[750:0x4CC], Level=[750:0x4E3]} // Latias
+StaticPokemon{}={Species=[750:0x4B7], Level=[750:0x4E3]} // Latios
+StaticPokemon{}={Species=[243:0x2FD, 243:0x14B], Level=[243:0x2FF, 243:0x14D]} // Sudowoodo
+StaticPokemon{}={Species=[58:0x61, 58:0x6D], Level=[58:0x6F]} // Lapras
+StaticPokemon{}={Species=[938:0x3CD, 938:0x3DE], Level=[938:0x3E0]} // Red Gyarados
+StaticPokemon{}={Species=[197:0x6C, 197:0x7D, 199:0x26A, 199:0x27B], Level=[197:0x7F, 199:0x27D]} // Snorlax
+StaticPokemon{}={Species=[89:0xF3D, 89:0x1078, 89:0x10A5, 89:0x112C, 89:0x11B3], Level=[89:0xF3F, 89:0x107A, 89:0x10A7, 89:0x112E, 89:0x11B5]} // Koffing @ Rocket Base
+StaticPokemon{}={Species=[89:0xF6A, 89:0xFC4, 89:0x101E, 89:0x104B, 89:0x1159, 89:0x1186], Level=[89:0xF6C, 89:0xFC6, 89:0x1020, 89:0x104D, 89:0x115B, 89:0x1188]} // Voltorb @ Rocket Base
+StaticPokemon{}={Species=[89:0xF97, 89:0xFF1, 89:0x10D2, 89:0x10FF, 89:0x11E0], Level=[89:0xF99, 89:0xFF3, 89:0x10D4, 89:0x1101, 89:0x11E2]} // Geodude @ Rocket Base
+StaticPokemon{}={Species=[90:0x784], Level=[90:0x786]} // Electrode @ Rocket Base (1)
+StaticPokemon{}={Species=[90:0x7E8], Level=[90:0x7EA]} // Electrode @ Rocket Base (2)
+StaticPokemon{}={Species=[90:0x84C], Level=[90:0x84E]} // Electrode @ Rocket Base (3)
+StaticPokemon{}={Species=[892:0x61], Level=[892:0x63]} // Eevee
+StaticPokemon{}={Species=[98:0x71], Level=[98:0x73]} // Tyrogue
+StaticPokemon{}={Species=[112:0x4D1], Level=[112:0x4D3]} // Dratini
+StaticPokemon{}={Species=[740:0x66F, 740:0x675, 740:0x695, 740:0x818, 740:0x8BC], Level=[740:0x86D]} // Bulbasaur
+StaticPokemon{}={Species=[740:0x71D, 740:0x723, 740:0x743, 740:0x833, 740:0x8D7], Level=[740:0x86D]} // Squirtle
+StaticPokemon{}={Species=[740:0x7CB, 740:0x7D1, 740:0x7F1], Level=[740:0x86D]} // Charmander
+StaticPokemon{}={Species=[837:0x28F], Level=[837:0x2D1]} // Treecko
+StaticPokemon{}={Species=[837:0x2A8], Level=[837:0x2D1]} // Torchic
+StaticPokemon{}={Species=[837:0x2B4], Level=[837:0x2D1]} // Mudkip
+StaticPokemon{}={Species=[860:0x146, 860:0x14D]]} // Primo's Mareep Egg
+StaticPokemon{}={Species=[860:0x180, 860:0x187]]} // Primo's Wooper Egg
+StaticPokemon{}={Species=[860:0x1BA, 860:0x1C1]]} // Primo's Slugma Egg
+StaticPokemon{}={Species=[878:0x90], Level=[878:0x92]} // Secret Tentacool
+StaticPokemonGameCorner{}={Species=[910:0x9A9, 910:0xA38, 910:0xAD8], Level=[910:0xABC], Text=[603:0x18]} // Abra
+StaticPokemonGameCorner{}={Species=[910:0x9B5, 910:0xA5C, 910:0xAEF], Level=[910:0xABC], Text=[603:0x19]} // Ekans
+StaticPokemonGameCorner{}={Species=[910:0x9CD, 910:0xA80, 910:0xB06], Level=[910:0xABC], Text=[603:0x1B]} // Sandshrew
+StaticPokemonGameCorner{}={Species=[910:0x9C1], Level=[910:0xABC], Text=[603:0x1A]} // Dratini
+StaticPokemonGameCorner{}={Species=[804:0x875, 804:0x8DB, 804:0x957], Level=[804:0x93B], Text=[509:0x21]} // Mr. Mime
+StaticPokemonGameCorner{}={Species=[804:0x881, 804:0x8FF, 804:0x96E], Level=[804:0x93B], Text=[509:0x22]} // Eevee
+StaticPokemonGameCorner{}={Species=[804:0x88D], Level=[804:0x93B], Text=[509:0x23]} // Porygon
+RoamingPokemon{}={Species=[0x111F08, 0x111F4C], Level=[0x111EEE], Script=[24:0x2F]} // Raikou
+RoamingPokemon{}={Species=[0x111F0C, 0x111F50], Level=[0x111EF4], Script=[24:0x4B]} // Entei
+RoamingPokemon{}={Species=[0x111F10, 0x111F54], Level=[0x111EFA], Script=[776:0xD5], Gender=[776:0xD7]} // Latias
+RoamingPokemon{}={Species=[0x111F14, 0x111F58], Level=[0x111F00], Script=[776:0x10B], Gender=[776:0x10D]} // Latios

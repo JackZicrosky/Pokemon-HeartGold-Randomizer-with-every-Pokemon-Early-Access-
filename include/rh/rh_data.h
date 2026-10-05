@@ -65,6 +65,10 @@ struct RhItem { u16 item; u8 flags; u8 pocket; };
 #define CODE_ADDON_RH_FIELD_ITEMS 25
 #define RH_FIELD_KEY_HIDDEN 0x1000
 struct RhFieldItem { u16 key; u16 item; };
+
+// a028 member 26: the static Pokemon (UPR FVX's HeartGold list, tools/rh/gen_rh_statics.py); map 0xFFFF = a roamer
+#define CODE_ADDON_RH_STATICS 26
+struct RhStatic { u16 map; u16 species; };
 #define RH_WILD_BANKS 142
 #define RH_WILD_PAIRS 1375
 struct RhWildPair

@@ -10,6 +10,7 @@
 #include "../include/save.h"
 #include "../include/script.h"
 #include "../include/types.h"
+#include "../include/rh/rh_coretable.h"
 
 /* In order to change the adjacent routes we would need to hook
  * https://github.com/pret/pokeheartgold/blob/d72700a52ad27ddf47847009a85b4bc9c85fa283/src/field_roamer.c#L256
@@ -113,6 +114,10 @@ void LONG_CALL Save_CreateRoamerByID(SaveData *saveData, u8 idx)
         GF_ASSERT(FALSE);
         return;
     }
+
+    // romhack: Static Pokemon (the roamers' replacements never have forms)
+    species = RHCT_StaticSpecies(species, 0xFFFF) & 0x7FF;
+    level = RHCT_StaticLevel(level);
 
     SetRoamerData(roamerStats, ROAMER_DATA_SPECIES, species);
     SetRoamerData(roamerStats, ROAMER_DATA_LEVEL, level);

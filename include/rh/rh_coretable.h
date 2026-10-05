@@ -15,6 +15,8 @@ enum
     RHCT_TRANSFORM_EGG_MOVES,
     RHCT_MACHINE_MOVE,
     RHCT_MACHINE_COMPAT,
+    RHCT_STATIC_SPECIES,
+    RHCT_STATIC_LEVEL,
     RHCT_COUNT
 };
 
@@ -53,6 +55,16 @@ static inline u32 RHCT_MachineMove(u32 index, u32 vanilla)
 static inline BOOL RHCT_MachineCompat(u32 sp, u32 index, BOOL vanilla)
 {
     return ((BOOL (*)(u32, u32, BOOL))RH_CORE_TABLE[RHCT_MACHINE_COMPAT])(sp, index, vanilla);
+}
+
+static inline u32 RHCT_StaticSpecies(u32 species, u32 map)
+{
+    return ((u32 (*)(u32, u32))RH_CORE_TABLE[RHCT_STATIC_SPECIES])(species, map);
+}
+
+static inline u32 RHCT_StaticLevel(u32 level)
+{
+    return ((u32 (*)(u32))RH_CORE_TABLE[RHCT_STATIC_LEVEL])(level);
 }
 
 #endif // RH_CORETABLE_H

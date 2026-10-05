@@ -11,4 +11,6 @@ void *const gRhCoreTable[RHCT_COUNT] __attribute__((section(".rh_header"))) = {
     [RHCT_TRANSFORM_EGG_MOVES] = (void *)RH_TransformEggMoves,
     [RHCT_MACHINE_MOVE]     = (void *)RH_MachineMove,
     [RHCT_MACHINE_COMPAT]   = (void *)RH_MachineCompat,
+    [RHCT_STATIC_SPECIES]   = (void *)RH_StaticSpecies,
+    [RHCT_STATIC_LEVEL]     = (void *)RH_StaticLevel,
 };

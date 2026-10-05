@@ -19,6 +19,8 @@
 #include "rtc.h"
 #include "save.h"
 #include "script.h"
+#include "rh/rh_internal.h"
+#include "rh/rh_statics.h"
 
 void SetupAndStartTotemBattle(TaskManager *taskManager, u16 species, u8 level, u32 *winFlag, BOOL shiny);
 
@@ -33,7 +35,7 @@ BOOL ScrCmd_GiveEgg(SCRIPTCONTEXT *ctx)
     FieldSystem *fsys = ctx->fsys;
     void *profile = Sav2_PlayerData_GetProfileAddr(fsys->savedata);
 
-    u16 species = ScriptGetVar(ctx);
+    u16 species = RH_FieldStaticSpecies(fsys, ScriptGetVar(ctx)); // romhack: Static Pokemon (Primo's eggs)
 
     u32 form = (species & 0xF800) >> 11; // extract form from egg
     species = species & 0x7FF;
@@ -325,6 +327,16 @@ BOOL ScrCmd_WildBattle(SCRIPTCONTEXT *ctx)
     u16 species = ScriptGetVar(ctx);
     u16 level = ScriptGetVar(ctx);
     u8 shiny = ScriptReadByte(ctx);
+    // romhack: Static Pokemon / Static Level Modifier
+    {
+        extern u32 space_for_setmondata;
+        u32 r = RH_FieldStaticSpecies(ctx->fsys, species);
+        if (r != species) {
+            species = r & 0x7FF;
+            space_for_setmondata = r >> 11; // the form, applied by AddWildPartyPokemon
+        }
+        level = RH_StaticLevel(level);
+    }
     // Set this var to 1 in DSPRE just prior to starting a forced wild battle to turn it into a Totem battle.
     if (GetScriptVar(0x800B)) {
         SetupAndStartTotemBattle(ctx->taskman, species, level, winFlag, shiny);

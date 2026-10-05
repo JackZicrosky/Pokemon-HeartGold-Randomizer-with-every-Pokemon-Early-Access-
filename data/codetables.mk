@@ -261,6 +261,17 @@ $(RH_MOVES_BIN): data/rh/RhMoves.c include/rh/rh_data.h
 
 NARC_FILES += $(RH_MOVES_BIN)
 
+# romhack: static Pokemon (tools/rh/gen_rh_statics.py), a028 member 26
+RH_STATICS_TARGET := $(BUILD)/a028/9_26
+RH_STATICS_BIN := build/rh/RhStatics.bin
+
+$(RH_STATICS_BIN): data/rh/RhStatics.c include/rh/rh_data.h
+	mkdir -p build/rh
+	$(CC) $(CFLAGS) -c $< -o build/rh/RhStatics.o
+	$(OBJCOPY) -O binary build/rh/RhStatics.o $@
+
+NARC_FILES += $(RH_STATICS_BIN)
+
 # romhack: tools/rh/gen_rh_items.py, a028 member 25
 RH_FIELD_ITEMS_TARGET := $(BUILD)/a028/9_25
 RH_FIELD_ITEMS_BIN := build/rh/RhFieldItems.bin
