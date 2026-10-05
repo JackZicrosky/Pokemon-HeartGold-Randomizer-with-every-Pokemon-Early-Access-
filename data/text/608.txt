@@ -1,0 +1,5 @@
+Hi, I’m looking for this Pokémon.\rIf you have a {STRVAR_1 0, 6, 0}, would you\ntrade it for my {STRVAR_1 0, 7, 0}? {YESNO 0}
+Great! Thank you!\rI finally got a {STRVAR_1 0, 6, 0}!
+You don’t have a {STRVAR_1 0, 6, 0}?\nThat’s too bad, then.
+You don’t have one either?\rGee, that’s really disappointing...
+Hi! The {STRVAR_1 0, 6, 0} you traded me is\ndoing great!

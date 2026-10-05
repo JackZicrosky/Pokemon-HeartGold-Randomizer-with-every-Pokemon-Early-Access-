@@ -1,0 +1,6 @@
+A Pokémon you get in a trade\ngrows quickly.\rBut if you don’t have the right Gym\nBadge, they may disobey you.
+I collect Pokémon.\nDo you have {STRVAR_1 0, 6, 0}?\rWant to trade it for my {STRVAR_1 0, 7, 0}? {YESNO 0}
+Yay! I got myself {STRVAR_1 0, 6, 0}!\nThanks!
+Huh? That’s not {STRVAR_1 0, 6, 0}.\fWhat a letdown...
+You don’t want to trade? Aww...
+Hi, how’s my old {STRVAR_1 0, 7, 0} doing?

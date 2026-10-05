@@ -53,6 +53,7 @@ def decode(data):
 
 
 if __name__ == '__main__':
-    bank = int(sys.argv[1])
-    for i, line in enumerate(decode(read_narc('base/root/a/0/2/7')[bank])):
-        print(i, line)
+    for bank in [int(b) for b in sys.argv[1:]]:
+        print("== bank", bank)
+        for i, line in enumerate(decode(read_narc('base/root/a/0/2/7')[bank])):
+            print(i, line)
