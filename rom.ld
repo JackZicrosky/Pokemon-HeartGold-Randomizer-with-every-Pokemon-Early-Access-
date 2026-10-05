@@ -914,3 +914,8 @@ sub_0207294C = 0x0207294C | 1;
 sub_02017068 = 0x02017068 | 1;
 MapObjectManager_RestoreFromSave = 0x0205E648 | 1;
 Save_MapObjects_Get = 0x0203B9D0 | 1;
+/* romhack (HeartGold Expansion Randomizer) */
+OverlayManager_GetArgs = 0x020072A4 | 1;
+Heap_Create = 0x0201A910 | 1;
+Heap_Destroy = 0x0201A9C4 | 1;
+IsPaletteFadeFinished = 0x0200FB5C | 1;

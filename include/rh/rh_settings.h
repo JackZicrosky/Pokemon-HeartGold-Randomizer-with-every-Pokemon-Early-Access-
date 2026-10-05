@@ -18,7 +18,7 @@ struct RhSettings
 {
     u32 magic;                    // RH_SETTINGS_MAGIC when the settings were set up by the options screen
     u32 seed;                     // hash of seedText
-    u16 seedText[RH_SEED_TEXT_LENGTH + 1]; // game charmap, terminated by 0xFFFF
+    u16 seedText[RH_SEED_TEXT_LENGTH + 1]; // the seed as typed (ASCII), 0-terminated
     u8 enabled;
     // ---- General ----
     u8 mechanicsGen;              // 1-9 (battle mechanics generation)
@@ -62,7 +62,7 @@ struct RhSettings
     u8 starterBstMinOn, starterBstMaxOn;
     u16 starterBstMin, starterBstMax;
     u8 starterTypes;              // 0 none, 1 fire/water/grass, 2 any type triangle, 3 unique, 4 single type
-    u8 starterSingleType;
+    u8 starterSingleType;         // TYPE_* (0xFF = random)
     u8 starterNoDualTypes;
     u8 statics;                   // 0 unchanged, 1 swap legends & standards, 2 random completely, 3 random similar strength
     u8 staticRandomize600, staticAllowAltFormes, staticFixMusic, staticLevelModOn;

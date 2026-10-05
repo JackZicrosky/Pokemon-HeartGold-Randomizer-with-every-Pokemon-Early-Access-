@@ -592,6 +592,12 @@ endif
 	@echo "ability flag params:"
 	cp $(ABILITY_FLAG_PARAMS_BIN) $(ABILITY_FLAG_PARAMS_TARGET)
 
+	@echo "romhack species info:"
+	cp $(RH_SPECIES_INFO_BIN) $(RH_SPECIES_INFO_TARGET)
+
+	@echo "romhack species info:"
+	cp $(RH_SPECIES_INFO_BIN) $(RH_SPECIES_INFO_TARGET)
+
 update_machine_moves: $(VENV_ACTIVATE)
 	$(PYTHON) scripts/update_machine_moves.py --descriptions --sprites
 	@echo "Updated item descriptions and sprites. Double check formatting"

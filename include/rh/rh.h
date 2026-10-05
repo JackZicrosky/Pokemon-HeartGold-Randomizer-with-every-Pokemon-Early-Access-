@@ -13,13 +13,19 @@
 #include "rh/rh_settings.h"
 
 #define OVERLAY_RH_CORE 152
+#define OVERLAY_RH_MENU 153
+// The options screen's app template is the first thing in overlay 153 (see src/rhmenu/linker.ld).
+#define RH_MENU_APP_TEMPLATE ((const void *)0x021E5900)
 
 // ---- src/rh/rh_core.c ----
-struct RhSettings *RH_Settings(void);           // the active settings (the save's copy)
-BOOL RH_Active(void);                           // randomizer set up and enabled
-u32 RH_Hash(u32 salt, u32 a, u32 b);            // deterministic, seed-dependent hash
-u32 RH_Random(u32 salt, u32 a, u32 b, u32 n);   // RH_Hash(...) % n
-void RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId);
+// (LONG_CALL: called through a register so the Thumb bit survives; the core is linked separately)
+struct RhSettings *LONG_CALL RH_Settings(void);           // the active settings (the save's copy)
+BOOL LONG_CALL RH_Active(void);                           // randomizer set up and enabled
+void LONG_CALL RH_SetDefaultSettings(struct RhSettings *s);
+void LONG_CALL RH_RegisterMainOverlay(u32 ovyId, const void *template);
+u32 LONG_CALL RH_Hash(u32 salt, u32 a, u32 b);            // deterministic, seed-dependent hash
+u32 LONG_CALL RH_Random(u32 salt, u32 a, u32 b, u32 n);   // RH_Hash(...) % n
+void LONG_CALL RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId);
 
 // debug counters (read by the test harness)
 struct RhDebug
@@ -29,6 +35,7 @@ struct RhDebug
     u32 personalReads;
     u32 lastPersonal;
 };
-extern struct RhDebug gRhDebug;
+// (gRhDebug lives in the core; other overlays must not reference core variables: the build exports them
+// with the Thumb bit set. Only call core functions.)
 
 #endif // RH_H

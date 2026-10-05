@@ -659,3 +659,4 @@ arm9 EncounterSlot_WildMonSlotRoll_Headbutt 022477C0 0
 arm9 FieldSystem_RestoreMapObjectsFromSave 0203B9F4 1
 # romhack (HeartGold Expansion Randomizer): data loader hook, see src/rh/rh_core.c
 arm9 RH_ReadWholeNarcMemberByIdPair 02007508 3
+arm9 RH_RegisterMainOverlay 02000EF4 2

@@ -569,3 +569,8 @@ arm9 020701AC 08 E0
 
 # sub_02070854 always call GetMonPicHeightBySpeciesGenderForm
 arm9 020708B0 06 E0
+
+# romhack (HeartGold Expansion Randomizer): Professor Oak skips the "important things" info pages (the
+# randomizer options screen comes first). OakSpeech main task, START_TUTORIAL_MUSIC: next state
+# FADE_IN_TUTORIAL_MENU (7) -> NO_INFO_NEEDED_FADE_IN (44)
+0053 021E70DC 2C 20
