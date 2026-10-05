@@ -53,7 +53,7 @@ def text_bank(bank):
         src, out = os.path.join(d, '7_%03d' % bank), os.path.join(d, 'out.txt')
         open(src, 'wb').write(data)
         subprocess.run(['tools/msgenc', '-d', '-c', 'charmap.txt', src, out], check=True, stdout=subprocess.DEVNULL)
-        return open(out, encoding='utf-8').read().split('\n')
+        return open(out, encoding='utf-8').read().rstrip('\n').split('\n')   # one entry per line
 
 
 def main():
@@ -84,8 +84,8 @@ def main():
             line = line.replace(ask + '㊛', ask)
             line = re.sub(r'\b%s\b' % re.escape(ask), '{STRVAR_1 0, %d, 0}' % SLOT_ASK, line)
             line = re.sub(r'\b%s\b' % re.escape(give), '{STRVAR_1 0, %d, 0}' % SLOT_GIVE, line)
-            lines[j] = line if line != '' or j == len(lines) - 1 else ' '   # msgenc drops empty entries
-        open('data/text/%03d.txt' % bank, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines))
+            lines[j] = line if line != '' else ' '   # msgenc drops empty entries
+        open('data/text/%03d.txt' % bank, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
         print(pret, 'trade', n, ask, '->', give)
 
 
