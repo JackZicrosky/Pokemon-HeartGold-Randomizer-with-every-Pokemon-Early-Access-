@@ -3,6 +3,7 @@
 #include "../../include/save.h"
 #include "../../include/constants/file.h"
 #include "../../include/rh/rh.h"
+#include "../../include/rh/rh_internal.h"
 
 struct RhDebug gRhDebug = { .magic = 0x52484442 };
 
@@ -11,7 +12,11 @@ struct RhDebug gRhDebug = { .magic = 0x52484442 };
 // ---------------------------------------------------------------------------
 struct RhSettings *RH_Settings(void)
 {
-    return &Sav2_Misc_get(SaveBlock2_get())->rh;
+    static struct RhSettings sNone;                  // before the save exists: magic 0 = nothing set up
+    void *save = SaveBlock2_get();
+    if (save == NULL)
+        return &sNone;
+    return &Sav2_Misc_get(save)->rh;
 }
 
 BOOL RH_Active(void)
@@ -106,14 +111,93 @@ void RH_RegisterMainOverlay(u32 ovyId, const void *template)
     MAIN_NEXT_TEMPLATE = template;
 }
 
+// ---------------------------------------------------------------------------
+// Misc. Tweaks: Instantaneous Text.
+// Replaces the text printer task (arm9 0x020202EC, pret RunTextPrinter). With the option on, a message is
+// drawn up to its next stop (button prompt, scroll, end) in one frame; the prompts still wait for A.
+// ---------------------------------------------------------------------------
+void LONG_CALL GenerateFontHalfRowLookupTable(u32 fg, u32 bg, u32 shadow);
+u32 LONG_CALL RenderFont(void *printer);
+void LONG_CALL CopyWindowToVram(void *window);
+void LONG_CALL DestroyTextPrinter(u32 id);
+
+#define TEXT_PRINTERS_DISABLED (*(u8 *)0x021D1F6C)
+enum { RENDER_PRINT, RENDER_FINISH, RENDER_REPEAT, RENDER_UPDATE };
+
+static BOOL InstantText(void)
+{
+    struct RhSettings *s = RH_Settings();
+    return s->magic == RH_SETTINGS_MAGIC && s->instantText;
+}
+
+void RH_RunTextPrinter(void *task, u8 *printer)
+{
+    u8 (*callback)(void *, u16) = *(void **)(printer + 0x1C);
+    (void)task;
+    if (TEXT_PRINTERS_DISABLED)
+        return;
+    if (printer[0x2D] == 0)
+    {
+        BOOL instant = InstantText(), printed = FALSE;
+        u32 r, guard = 0;
+        *(u16 *)(printer + 0x2E) = 0;
+        GenerateFontHalfRowLookupTable(printer[0x15], printer[0x16], printer[0x17]);
+        for (;;)
+        {
+            if (instant)
+                printer[0x2A] = 0;                // no delay before the next letter
+            r = RenderFont(printer);
+            if (r != RENDER_PRINT || !instant || ++guard > 2048)
+                break;
+            printed = TRUE;
+        }
+        if (printed && r != RENDER_PRINT)
+            CopyWindowToVram(*(void **)(printer + 4));     // letters drawn by the instant-text loop
+        switch (r)
+        {
+        case RENDER_PRINT:
+            CopyWindowToVram(*(void **)(printer + 4));
+            // fallthrough
+        case RENDER_UPDATE:
+            if (callback != NULL)
+                printer[0x2D] = callback(printer, *(u16 *)(printer + 0x2E));
+            break;
+        case RENDER_FINISH:
+            DestroyTextPrinter(printer[0x2C]);
+            break;
+        }
+    }
+    else
+    {
+        printer[0x2D] = callback(printer, *(u16 *)(printer + 0x2E));
+    }
+}
+
 // Replaces ReadWholeNarcMemberByIdPair (arm9 0x02007508): read as before, then let the randomizer
 // transform the data it cares about.
 void RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId)
 {
     ReadFromNarcMemberByIdPair(dest, narcId, fileId, 0, 0);
     gRhDebug.narcReads++;
+    {
+        // DEBUG: heap headroom
+        static const u8 sHeaps[] = { 0, 1, 2, 3, 4, 5, 11 };
+        u32 i;
+        for (i = 0; i < sizeof(sHeaps); i++)
+        {
+            u32 *handles = *(u32 **)0x021D1584;               // sHeapInfo.heapHandles
+            u8 *idxs = *(u8 **)(0x021D1584 + 0x10);           // sHeapInfo.heapIdxs
+            if (handles != NULL && idxs != NULL && handles[idxs[sHeaps[i]]] != 0)
+            {
+                u32 f = GF_ExpHeap_FndGetTotalFreeSize(sHeaps[i]);
+                if (gRhDebug.heapMinFree[sHeaps[i]] == 0 || f < gRhDebug.heapMinFree[sHeaps[i]])
+                    gRhDebug.heapMinFree[sHeaps[i]] = f;
+            }
+        }
+    }
     if (narcId == ARC_PERSONAL) {
         gRhDebug.personalReads++;
         gRhDebug.lastPersonal = fileId;
+        RH_TransformPersonal(fileId, dest);
     }
 }

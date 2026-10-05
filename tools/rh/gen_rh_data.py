@@ -4,13 +4,15 @@
 Reads base/root/a/0/0/2 (personal), a/0/3/4 (evolutions), build/PokeFormDataTbl.bin and the species
 constants, and writes data/rh/RhSpeciesInfo.c (committed; compiled into a028 member 20 by the Makefile).
 
-One 10-byte record per personal-data index (base species and form species alike):
+One 12-byte record per personal-data index (base species and form species alike):
     u16 key      base species | form << 11
     u16 bst      vanilla base stat total
     u16 preEvo   personal index of the direct pre-evolution (0 = basic)
     u8  type1, type2
     u8  gsc      gen (bits 0-3) | stage-1 (bits 4-5) | chain-1 (bits 6-7)
     u8  flags    RH_SPF_* (include/rh/rh_data.h)
+    u8  children distinct vanilla evolutions (forms count once): all (bits 0-3), gen 1 only (4-5), gens 1-3 (6-7)
+    u8  flags2   RH_SPF2_*
 
 Usage (WSL, in source/):  .venv/bin/python tools/rh/gen_rh_data.py
 """
@@ -46,6 +48,10 @@ RH_SPF_MEGA = 0x04         # Mega Evolution (only for "Permanent Mega" wild Poke
 RH_SPF_POOL = 0x08         # can be picked at all (base species, usable forms, Megas)
 RH_SPF_STRONG_LEGEND = 0x10
 RH_SPF_BASE = 0x20         # the base form of its species
+
+RH_SPF2_REGIONAL = 0x01    # regional form: a Pokemon of its own (own types, abilities...)
+RH_SPF2_MEGA_LIKE = 0x02   # Mega / Primal / Ultra Burst: follows its base form only with "Follow Mega Evolutions"
+RH_SPF2_VIVILLON = 0x04    # a Vivillon wing pattern: never picked itself (Vivillon counts once)
 
 
 # Forms that can be picked as "alternate formes" (regional forms and forms a wild Pokemon can have). Every other
@@ -180,6 +186,21 @@ def main():
             return 1
         return 1 + max(chain_len(c, depth + 1) for c in ch)
 
+    def base_of(i):
+        return key.get(i, (i, 0))[0]
+
+    def children_counts(i):
+        seen_all, seen_g1, seen_g3 = set(), set(), set()
+        for c in children.get(i, []):
+            b = base_of(c)
+            g = gen_of(dex_of(b)) if b else 9
+            seen_all.add(b)
+            if g <= 1:
+                seen_g1.add(b)
+            if g <= 3:
+                seen_g3.add(b)
+        return min(len(seen_all), 15) | (min(len(seen_g1), 3) << 4) | (min(len(seen_g3), 3) << 6)
+
     recs = []
     pool = 0
     for i in range(n_entries):
@@ -208,7 +229,16 @@ def main():
                 flags |= RH_SPF_MEGA | RH_SPF_POOL
             elif is_variant(name):
                 flags |= RH_SPF_VARIANT | RH_SPF_POOL
-        recs.append((base | (form << 11), bst, pre.get(i, 0), t1, t2, (g & 15) | ((st - 1) << 4) | ((ch - 1) << 6), flags))
+        flags2 = 0
+        if name.endswith(('_ALOLAN', '_GALARIAN', '_HISUIAN', '_PALDEAN')) or name in (
+                'SPECIES_TAUROS_COMBAT', 'SPECIES_TAUROS_BLAZE', 'SPECIES_TAUROS_AQUA', 'SPECIES_URSALUNA_BLOODMOON'):
+            flags2 |= RH_SPF2_REGIONAL
+        if name.startswith('SPECIES_MEGA_') or 'PRIMAL' in name or '_ULTRA_' in name:
+            flags2 |= RH_SPF2_MEGA_LIKE
+        if name.startswith('SPECIES_VIVILLON_'):
+            flags2 |= RH_SPF2_VIVILLON
+        recs.append((base | (form << 11), bst, pre.get(i, 0), t1, t2, (g & 15) | ((st - 1) << 4) | ((ch - 1) << 6), flags,
+                     children_counts(i), flags2))
         if flags & RH_SPF_POOL:
             pool += 1
 
@@ -218,7 +248,7 @@ def main():
            '#include "../../include/types.h"', '#include "../../include/rh/rh_data.h"', '',
            f'const struct RhSpeciesInfo UNUSED gRhSpeciesInfo[{n_entries}] = {{']
     for i, r in enumerate(recs):
-        out.append(f'    /* {i:4} {by_id.get(i, "")[8:]:<24} */ {{ 0x{r[0]:04X}, {r[1]:3}, {r[2]:4}, {r[3]:2}, {r[4]:2}, 0x{r[5]:02X}, 0x{r[6]:02X} }},')
+        out.append(f'    /* {i:4} {by_id.get(i, "")[8:]:<24} */ {{ 0x{r[0]:04X}, {r[1]:3}, {r[2]:4}, {r[3]:2}, {r[4]:2}, 0x{r[5]:02X}, 0x{r[6]:02X}, 0x{r[7]:02X}, 0x{r[8]:02X} }},')
     out.append('};')
     open(R + 'data/rh/RhSpeciesInfo.c', 'w', newline='\n').write('\n'.join(out) + '\n')
     print('records', n_entries, 'pool candidates', pool,

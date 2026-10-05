@@ -16,6 +16,7 @@
 #include "../../include/sound.h"
 #include "../../include/constants/sndseq.h"
 #include "../../include/rh/rh.h"
+#include "../../include/rh/rh_test.h"
 
 #include "rh_font.h"
 #include "rh_names.h"
@@ -2117,6 +2118,9 @@ static BOOL MenuExec(void *manager, int *state)
     {
     case ST_SETUP:
         RH_SetDefaultSettings(S);
+#if RH_TEST
+        S->instantText = TRUE;                // test builds: fast text for the emulator tests
+#endif
         RandomSeedText();
         sInGame = FALSE;
         sExitTo = 0;

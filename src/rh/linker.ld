@@ -15,6 +15,7 @@ SECTIONS {
                 FILL (0xABCD)
 
                 __text_start = . ;
+                *(.rh_header)   /* the entry table for overlay 129 (rh_coretable.c), at 0x01FF8700 */
                 *(.init)
                 *(.text)
                 *(.ctors)

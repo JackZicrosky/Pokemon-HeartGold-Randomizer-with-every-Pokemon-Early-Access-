@@ -1,6 +1,7 @@
 #include "../include/constants/species.h"
 #include "../include/pokemon.h"
 #include "../include/types.h"
+#include "../include/rh/rh_coretable.h"
 
 extern u32 space_for_setmondata;
 extern u32 sStarterChoiceCries[];
@@ -22,6 +23,15 @@ static const u16 sStarterChoices[3] = {
     SPECIES_TOTODILE,
 };
 
+// romhack: the starter in each of Elm's balls comes from the randomizer (the game's own starters when the
+// "Starters" option is Unchanged). species | form << 11, like sStarterChoices.
+static u16 StarterChoice(int slot)
+{
+    u16 species, form;
+    RHCT_SpeciesKey(RHCT_StarterForSlot(slot), &species, &form);
+    return species | (form << 11);
+}
+
 /**
  *  @brief fills the given array with the species ids of the starter choices
  *
@@ -31,7 +41,7 @@ void LONG_CALL CreateStarter_SetStarterSpecies(int *species)
 {
     for (int i = 0; i < 3; i++) {
         // strip off form
-        species[i] = sStarterChoices[i] & 0x7FF;
+        species[i] = StarterChoice(i) & 0x7FF;
     }
 }
 
@@ -47,7 +57,7 @@ void LONG_CALL CreateStarter_CreateMon(struct PartyPokemon *mon, int species, in
     u32 form = 0;
 
     if (slot >= 0 && slot < 3) {
-        form = sStarterChoices[slot] >> 11;
+        form = StarterChoice(slot) >> 11;
     }
 
     space_for_setmondata = form;
@@ -70,7 +80,7 @@ void LONG_CALL CreateMonSprites_HandleForm(MON_PIC *pic, u16 species, u8 gender,
     u32 form = 0;
 
     if (slot >= 0 && slot < 3) {
-        form = sStarterChoices[slot] >> 11;
+        form = StarterChoice(slot) >> 11;
         sStarterChoiceCries[slot] = (form == 0) ? species : PokeOtherFormMonsNoGet(species, form);
     }
 

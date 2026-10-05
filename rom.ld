@@ -919,3 +919,6 @@ OverlayManager_GetArgs = 0x020072A4 | 1;
 Heap_Create = 0x0201A910 | 1;
 Heap_Destroy = 0x0201A9C4 | 1;
 IsPaletteFadeFinished = 0x0200FB5C | 1;
+GenerateFontHalfRowLookupTable = 0x0202036C | 1;
+RenderFont = 0x02020358 | 1;
+DestroyTextPrinter = 0x02020020 | 1;

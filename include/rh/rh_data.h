@@ -12,6 +12,10 @@
 #define RH_SPF_STRONG_LEGEND 0x10
 #define RH_SPF_BASE          0x20   // base form of its species
 
+#define RH_SPF2_REGIONAL     0x01   // regional form: a Pokemon of its own
+#define RH_SPF2_MEGA_LIKE    0x02   // Mega / Primal / Ultra Burst
+#define RH_SPF2_VIVILLON     0x04   // a Vivillon wing pattern (never picked itself)
+
 // one per personal-data index
 struct RhSpeciesInfo
 {
@@ -21,6 +25,8 @@ struct RhSpeciesInfo
     u8 type1, type2;
     u8 gsc;       // gen (bits 0-3) | stage-1 (bits 4-5) | chain-1 (bits 6-7)
     u8 flags;     // RH_SPF_*
+    u8 children;  // distinct vanilla evolutions (forms once): all (bits 0-3), gen 1 (4-5), gens 1-3 (6-7)
+    u8 flags2;    // RH_SPF2_*
 };
 
 #define RH_KEY_SPECIES(key) ((key) & 0x7FF)

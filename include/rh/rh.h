@@ -34,6 +34,7 @@ struct RhDebug
     u32 narcReads;
     u32 personalReads;
     u32 lastPersonal;
+    u32 heapMinFree[12];  // smallest free size seen per heap id (sampled on data reads), 0 = never sampled
 };
 // (gRhDebug lives in the core; other overlays must not reference core variables: the build exports them
 // with the Thumb bit set. Only call core functions.)
