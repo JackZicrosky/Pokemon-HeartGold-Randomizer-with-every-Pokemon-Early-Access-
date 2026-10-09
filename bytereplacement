@@ -574,3 +574,7 @@ arm9 020708B0 06 E0
 # randomizer options screen comes first). OakSpeech main task, START_TUTORIAL_MUSIC: next state
 # FADE_IN_TUTORIAL_MENU (7) -> NO_INFO_NEEDED_FADE_IN (44)
 0053 021E70DC 2C 20
+
+# romhack: Key Items pocket item names start 2px further right (x 0 -> 2), so a wide icon like the
+# Rando Settings New 3DS XL (owner's 24px-wide art) does not crowd its name (bag: ov15_021FF570, mov r3, #2)
+0015 08006262 02 23

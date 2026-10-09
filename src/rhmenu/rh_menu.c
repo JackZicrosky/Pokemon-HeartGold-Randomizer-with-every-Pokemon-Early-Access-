@@ -2123,9 +2123,9 @@ static BOOL MenuExec(void *manager, int *state)
     switch (*state)
     {
     case ST_SETUP:
-        // opened from the Randomizer Settings key item (RH_OpenSettingsFromField passes args): edit the run's
-        // settings; at New Game: the defaults with a new seed
-        sInGame = OverlayManager_GetArgs(manager) != NULL;
+        // opened from the Randomizer Settings key item (RH_OpenSettingsFromField): edit the run's settings;
+        // at New Game: the defaults with a new seed
+        sInGame = RH_SettingsOpenedInGame(OverlayManager_GetArgs(manager));
         if (sInGame)
         {
             sPending = *RH_Settings();
@@ -2185,6 +2185,8 @@ static BOOL MenuExit(void *manager, int *state)
         S->seed = 1;
     if (!sInGame || sExitTo == 1)
         *RH_Settings() = sPending;
+    if (sInGame && sExitTo == 1)
+        RH_GiveKeyItems();                    // e.g. Nuzlocke Mode switched on mid-run: its key items now
     sys_FreeMemoryEz(sBuf[SCR_TOP]);
     sys_FreeMemoryEz(sBuf[SCR_BOTTOM]);
     Heap_Destroy(HEAPID_RH_MENU);

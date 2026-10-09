@@ -272,6 +272,7 @@ scrdef RhShop_Mega
 scrdef RhShop_Training
 scrdef RhShop_Berries
 scrdef RhShop_Snacks
+scrdef RhHealingKit
 scrdef_end
 
 scr_seq_0141_000:
@@ -2151,6 +2152,17 @@ RhShop_Snacks:
     npc_msg 16
     closemsg
     special_mart_buy 37
+    releaseall
+    end
+
+RhHealingKit:
+    lockall
+    heal_party
+    play_fanfare SEQ_ME_ASA
+    wait_fanfare
+    npc_msg 19
+    wait_button
+    closemsg
     releaseall
     end
 

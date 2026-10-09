@@ -104,18 +104,26 @@ static u8 sMenuShown;
 
 void *LONG_CALL SaveBlock2_get(void);
 
-// Everyone has the Randomizer Settings key item: given when a new game's field starts (and on Continue, if missing)
-static void GiveKeyItems(void)
+// Everyone has the Randomizer Settings key item, Nuzlocke Mode adds the Infinite Candy and the Healing Kit: given
+// when a new game's field starts (and on Continue, if missing)
+void RH_GiveKeyItems(void)
 {
     void *bag = Sav2_Bag_get(SaveBlock2_get());
     if (!Bag_HasItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3))
         Bag_AddItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3);
+    if (RH_Active() && RH_Settings()->nuzlocke)        // Nuzlocke Mode: Infinite Candy and Healing Kit
+    {
+        if (!Bag_HasItem(bag, ITEM_INFINITE_CANDY, 1, 3))
+            Bag_AddItem(bag, ITEM_INFINITE_CANDY, 1, 3);
+        if (!Bag_HasItem(bag, ITEM_HEALING_KIT, 1, 3))
+            Bag_AddItem(bag, ITEM_HEALING_KIT, 1, 3);
+    }
 }
 
 void RH_RegisterMainOverlay(u32 ovyId, const void *template)
 {
     if (template == APP_NEW_GAME_FIELD || template == APP_CONTINUE_FIELD)
-        GiveKeyItems();
+        RH_GiveKeyItems();
     if (template == APP_OAK_SPEECH && !sMenuShown) {
         // a new game: show the options first; the options screen registers Oak's speech when it closes
         ovyId = OVERLAY_RH_MENU;
@@ -256,4 +264,9 @@ void LONG_CALL FieldSystem_LaunchApplication(void *fieldSystem, const void *temp
 void RH_OpenSettingsFromField(void *fieldSystem)
 {
     FieldSystem_LaunchApplication(fieldSystem, &sMenuFromField, &sMenuInGameArgs);
+}
+
+BOOL RH_SettingsOpenedInGame(void *args)
+{
+    return args == &sMenuInGameArgs;
 }

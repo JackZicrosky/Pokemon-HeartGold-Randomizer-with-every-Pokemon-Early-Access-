@@ -14,6 +14,8 @@ BANK = 199
 FIRST_INDEX = 256                  # entries 0-254 = item balls, 255 = ItemBallCommon (gen_rh_items.py)
 SETTINGS_INDEX = FIRST_INDEX       # the Randomizer Settings key item's script (src/item.c RH_SCRIPT_RANDOMIZER_SETTINGS)
 SHOPS_INDEX = FIRST_INDEX + 1
+HEALING_KIT_INDEX = SHOPS_INDEX + 7  # the Healing Kit key item's script (src/item.c RH_SCRIPT_HEALING_KIT)
+HEALING_TEXT = r'Your Pokémon were fully healed!'
 RH_SPECIAL_OPEN_SETTINGS = 3       # include/rh/rh_items.h
 SETTINGS_TEXTS = [
     r'WARNING!\nChanging the settings mid-run\rcan BREAK your current playthrough.\n'
@@ -92,13 +94,26 @@ def scripts(first_msg):
                  '    special_mart_buy %d' % (RH_SPECIAL_MART_BASE + SELLERS[n][0]),
                  '    releaseall',
                  '    end', '']
+    # the Healing Kit: heals the whole party (scr_seq 3's Pokemon Center healing: heal_party)
+    assert len(defs) == HEALING_KIT_INDEX - FIRST_INDEX and 7000 + HEALING_KIT_INDEX == 7264
+    defs.append('scrdef RhHealingKit')
+    body += ['RhHealingKit:',
+             '    lockall',
+             '    heal_party',
+             '    play_fanfare SEQ_ME_ASA',
+             '    wait_fanfare',
+             '    npc_msg %d' % (ask + 1),
+             '    wait_button',
+             '    closemsg',
+             '    releaseall',
+             '    end', '']
     return defs, body
 
 
 def main():
     from gen_rh_trade_scripts import text_bank
     lines = [line if line != '' else ' ' for line in text_bank(BANK)]
-    lines += [SELLERS[n][2] for n in ORDER] + SETTINGS_TEXTS
+    lines += [SELLERS[n][2] for n in ORDER] + SETTINGS_TEXTS + [HEALING_TEXT]
     open('data/text/%03d.txt' % BANK, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
     print('shop NPC greetings: messages', len(lines) - len(ORDER), '-', len(lines) - 1)
 

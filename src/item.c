@@ -381,6 +381,8 @@ void ItemMenuUseFunc_Nectar(struct ItemMenuUseData *data, const struct ItemCheck
 void ItemMenuUseFunc_RotomCatalog(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED);
 void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2);
 BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data);
+void ItemMenuUseFunc_HealingKit(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2);
+BOOL ItemFieldUseFunc_HealingKit(struct ItemFieldUseData *data);
 
 const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_RevealGlass, ItemFieldUseFunc_RevealGlass, NULL },
@@ -390,6 +392,7 @@ const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_Nectar, NULL, NULL },
     { ItemMenuUseFunc_RotomCatalog, NULL, NULL },
     { ItemMenuUseFunc_RandomizerSettings, ItemFieldUseFunc_RandomizerSettings, NULL }, // romhack: field use 36
+    { ItemMenuUseFunc_HealingKit, ItemFieldUseFunc_HealingKit, NULL },                 // romhack: field use 37
 };
 
 extern const struct ItemUseFuncDat sItemFieldUseFuncs[NUM_VANILLA_FIELD_USE_FUNCS];
@@ -696,10 +699,12 @@ void ItemMenuUseFunc_RotomCatalog(struct ItemMenuUseData *data, const struct Ite
 }
 
 // ---------------------------------------------------------------------------
-// romhack: the Randomizer Settings key item runs its script (the item ball script file's entry
-// RH_SCRIPT_RANDOMIZER_SETTINGS: a warning, YES/NO, then the options screen), from the bag or registered to Y.
+// romhack: key items that run a script (entries of the item ball script file, tools/rh/gen_rh_shop_npcs.py),
+// from the bag or registered to Y: Randomizer Settings (a warning, YES/NO, then the options screen) and Healing Kit.
 // ---------------------------------------------------------------------------
-#define RH_SCRIPT_RANDOMIZER_SETTINGS 7256      // tools/rh/gen_rh_shop_npcs.py SETTINGS_INDEX
+#define RH_SCRIPT_RANDOMIZER_SETTINGS 7256      // SETTINGS_INDEX
+#define RH_SCRIPT_HEALING_KIT         7264      // HEALING_KIT_INDEX
+static u16 sRhItemScript;
 void LONG_CALL FieldSystem_LoadFieldOverlay(FieldSystem *fieldSystem);
 void LONG_CALL QueueScript(TaskManager *taskman, u16 script, void *lastInteracted, void *a3);
 void LONG_CALL EventSet_Script(FieldSystem *fieldSystem, u16 script, void *lastInteracted);
@@ -708,20 +713,37 @@ static BOOL Task_RandomizerSettingsScript(TaskManager *taskman)
 {
     if (taskman->state == 0)
     {
-        QueueScript(taskman, RH_SCRIPT_RANDOMIZER_SETTINGS, NULL, NULL);
+        QueueScript(taskman, sRhItemScript, NULL, NULL);
         taskman->state++;
         return FALSE;
     }
     return TRUE;
 }
 
-void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED)
+static void RunItemScriptFromBag(struct ItemMenuUseData *data, u16 script)
 {
     struct BagViewAppWork *env = data->taskManager->env;
+    sRhItemScript = script;
     FieldSystem_LoadFieldOverlay(data->taskManager->fieldSystem);
     env->atexit_TaskFunc = Task_RandomizerSettingsScript;
     env->atexit_TaskEnv = NULL;
     env->state = 12;                            // leave the bag, then run the task (pret: exitTaskFunc, state 12)
+}
+
+void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED)
+{
+    RunItemScriptFromBag(data, RH_SCRIPT_RANDOMIZER_SETTINGS);
+}
+
+void ItemMenuUseFunc_HealingKit(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED)
+{
+    RunItemScriptFromBag(data, RH_SCRIPT_HEALING_KIT);
+}
+
+BOOL ItemFieldUseFunc_HealingKit(struct ItemFieldUseData *data)
+{
+    EventSet_Script(data->fieldSystem, RH_SCRIPT_HEALING_KIT, NULL);
+    return FALSE;
 }
 
 BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data)

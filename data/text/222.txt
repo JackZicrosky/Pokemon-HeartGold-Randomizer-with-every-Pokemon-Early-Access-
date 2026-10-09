@@ -2684,3 +2684,5 @@ Hyper Chilan Berry
 Hyper Roseli Berry
 Canari Bread
 Rando Settings
+Infinite Candy
+Healing Kit

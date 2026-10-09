@@ -252,6 +252,9 @@ ITEM_SLOT *Bag_GetItemSlotForRemove(BAG_DATA *bag, u16 itemId, u16 quantity, int
 
 BOOL Bag_TakeItem(BAG_DATA *bag, u16 itemId, u16 quantity, int heap_id)
 {
+    if (itemId == ITEM_INFINITE_CANDY && Bag_GetItemSlotForRemove(bag, itemId, quantity, heap_id) != NULL) {
+        return TRUE;    // romhack: the Infinite Candy is never used up
+    }
     ITEM_SLOT *slot = Bag_GetItemSlotForRemove(bag, itemId, quantity, heap_id);
     if (slot == NULL) {
         return FALSE;
