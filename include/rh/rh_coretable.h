@@ -18,6 +18,7 @@ enum
     RHCT_STATIC_SPECIES,
     RHCT_STATIC_LEVEL,
     RHCT_TRANSFORM_TRADE,
+    RHCT_ITEM_PRICE,
     RHCT_COUNT
 };
 
@@ -71,6 +72,11 @@ static inline u32 RHCT_StaticLevel(u32 level)
 static inline void RHCT_TransformTrade(u32 tradeno, void *tradeData)
 {
     ((void (*)(u32, void *))RH_CORE_TABLE[RHCT_TRANSFORM_TRADE])(tradeno, tradeData);
+}
+
+static inline u32 RHCT_ItemPrice(u32 item, u32 vanilla)
+{
+    return ((u32 (*)(u32, u32))RH_CORE_TABLE[RHCT_ITEM_PRICE])(item, vanilla);
 }
 
 #endif // RH_CORETABLE_H

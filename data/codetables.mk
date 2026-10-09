@@ -293,3 +293,14 @@ $(RH_ITEMS_BIN): data/rh/RhItems.c include/rh/rh_data.h
 	$(OBJCOPY) -O binary build/rh/RhItems.o $@
 
 NARC_FILES += $(RH_ITEMS_BIN)
+
+# romhack: special shops (tools/rh/gen_rh_special_shops.py), a028 member 27
+RH_SPECIAL_SHOPS_TARGET := $(BUILD)/a028/9_27
+RH_SPECIAL_SHOPS_BIN := build/rh/RhSpecialShops.bin
+
+$(RH_SPECIAL_SHOPS_BIN): data/rh/RhSpecialShops.c include/rh/rh_data.h
+	mkdir -p build/rh
+	$(CC) $(CFLAGS) -c $< -o build/rh/RhSpecialShops.o
+	$(OBJCOPY) -O binary build/rh/RhSpecialShops.o $@
+
+NARC_FILES += $(RH_SPECIAL_SHOPS_BIN)

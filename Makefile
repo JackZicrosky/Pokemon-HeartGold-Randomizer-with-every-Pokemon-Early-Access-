@@ -600,6 +600,7 @@ endif
 	cp $(RH_STATICS_BIN) $(RH_STATICS_TARGET)
 	cp $(RH_FIELD_ITEMS_BIN) $(RH_FIELD_ITEMS_TARGET)
 	cp $(RH_ITEMS_BIN) $(RH_ITEMS_TARGET)
+	cp $(RH_SPECIAL_SHOPS_BIN) $(RH_SPECIAL_SHOPS_TARGET)
 
 	@echo "romhack species info:"
 	cp $(RH_SPECIES_INFO_BIN) $(RH_SPECIES_INFO_TARGET)
@@ -609,6 +610,7 @@ endif
 	cp $(RH_STATICS_BIN) $(RH_STATICS_TARGET)
 	cp $(RH_FIELD_ITEMS_BIN) $(RH_FIELD_ITEMS_TARGET)
 	cp $(RH_ITEMS_BIN) $(RH_ITEMS_TARGET)
+	cp $(RH_SPECIAL_SHOPS_BIN) $(RH_SPECIAL_SHOPS_TARGET)
 
 update_machine_moves: $(VENV_ACTIVATE)
 	$(PYTHON) scripts/update_machine_moves.py --descriptions --sprites

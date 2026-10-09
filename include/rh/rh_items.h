@@ -6,6 +6,7 @@
 
 // "nop_var_490 VAR" (vanilla script command 490, a no-op) runs the romhack special in VAR:
 #define RH_SPECIAL_ITEM_BALL 1          // VAR_SPECIAL_x8004 = item, VAR_SPECIAL_x800A = item ball number -> new item
+#define RH_SPECIAL_MASTER_BALL_OFFER 2  // VAR_SPECIAL_RESULT = 1: Kurt offers his one Master Ball (shops not randomized)
 
 u32 RH_FieldItem(u32 item, u32 key);    // key: item ball number, or RH_FIELD_KEY_HIDDEN + hidden item index
 BOOL RH_ItemBanned(u32 item);
@@ -13,5 +14,7 @@ BOOL RH_ItemBanned(u32 item);
 void RH_BuildMart(const u16 *const *lists, u32 count, u32 which, u16 *out, u32 max);
 // Nuzlocke: no Rare Candy; "Add Cheap Rare Candies": Rare Candy in every mart (list ends with 0xFFFF, room for one more)
 void RH_FilterMart(u16 *items, u32 max);
+// special shop RH_SPECIAL_* (include/rh/rh_data.h) into out (0xFFFF-terminated)
+void RH_BuildSpecialShop(u32 list, u16 *out, u32 max);
 
 #endif // RH_ITEMS_H

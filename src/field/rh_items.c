@@ -46,7 +46,7 @@ BOOL RH_ItemBanned(u32 item)
 
 static BOOL PoolItemOk(const struct RhItem *it, BOOL banBad)
 {
-    if (RH_ItemBanned(it->item))
+    if (RH_ItemBanned(it->item) || (it->pocket & RHP_SHOP_ONLY))
         return FALSE;
     if (banBad && (it->flags & RHI_BAD))
         return FALSE;
@@ -72,6 +72,22 @@ static BOOL InPool(const struct RhItem *pool, u32 n, u32 item)
     return FALSE;
 }
 
+static const struct RhItem *PoolEntry(const struct RhItem *pool, u32 n, u32 item)
+{
+    s32 lo = 0, hi = (s32)n - 1;
+    while (lo <= hi)
+    {
+        s32 mid = (lo + hi) / 2;
+        if (pool[mid].item == item)
+            return &pool[mid];
+        if (pool[mid].item < item)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return NULL;
+}
+
 // Items the randomizer leaves alone: key items, HMs, anything outside the pool (Mega Stones, quest items...).
 static BOOL Protected(const struct RhItem *pool, u32 n, u32 item)
 {
@@ -81,7 +97,8 @@ static BOOL Protected(const struct RhItem *pool, u32 n, u32 item)
 // Shuffle keeps the game's own items (FVX: "Ban Bad Items" only affects the random modes).
 static BOOL FieldPoolItemOk(const struct RhItem *pool, u32 n, u32 item)
 {
-    return !Protected(pool, n, item) && !IS_TM(item) && !RH_ItemBanned(item);
+    const struct RhItem *e = PoolEntry(pool, n, item);
+    return !Protected(pool, n, item) && !IS_TM(item) && !RH_ItemBanned(item) && !(e != NULL && (e->pocket & RHP_SHOP_ONLY));
 }
 
 static BOOL KindOk(const struct RhItem *pool, u32 n, u32 item, BOOL tms)
@@ -174,6 +191,11 @@ u32 RH_FieldItem(u32 item, u32 key)
 // ---------------------------------------------------------------------------
 // The romhack's script command: "nop_var_490 VAR" with VAR = RH_SPECIAL_* (other inputs in VAR_SPECIAL_x8004..)
 // ---------------------------------------------------------------------------
+static BOOL ShopsRandomized(void)
+{
+    return RH_Active() && (S->shopItems != 0 || S->shopSpecial);
+}
+
 BOOL ScrCmd_RhSpecial(SCRIPTCONTEXT *ctx)
 {
     u16 *var = ScriptGetVarPointer(ctx);
@@ -186,6 +208,10 @@ BOOL ScrCmd_RhSpecial(SCRIPTCONTEXT *ctx)
         *item = RH_FieldItem(*item, VarGet(ctx->fsys, 0x800A));
         break;
     }
+    case RH_SPECIAL_MASTER_BALL_OFFER:
+        // Kurt offers his one Master Ball himself when the shops aren't randomized (else it's in his shop)
+        *GetVarPointer(ctx->fsys, 0x800C) = !ShopsRandomized();
+        break;
     }
     return FALSE;
 }
@@ -193,22 +219,6 @@ BOOL ScrCmd_RhSpecial(SCRIPTCONTEXT *ctx)
 // ---------------------------------------------------------------------------
 // Shops (FVX "Shop Items"): the specialty marts' stock; the regular clerks (balls, medicine, repels) stay.
 // ---------------------------------------------------------------------------
-static const struct RhItem *PoolEntry(const struct RhItem *pool, u32 n, u32 item)
-{
-    s32 lo = 0, hi = (s32)n - 1;
-    while (lo <= hi)
-    {
-        s32 mid = (lo + hi) / 2;
-        if (pool[mid].item == item)
-            return &pool[mid];
-        if (pool[mid].item < item)
-            lo = mid + 1;
-        else
-            hi = mid - 1;
-    }
-    return NULL;
-}
-
 // A slot the Shop Items option may change (not balls / medicine / repels, key items, guaranteed items).
 static BOOL ShopSlotRandomizable(const struct RhItem *pool, u32 n, u32 item)
 {
@@ -313,5 +323,81 @@ void RH_BuildMart(const u16 *const *lists, u32 count, u32 which, u16 *out, u32 m
     }
     out[k] = 0xFFFF;
     FreeTable(pool);
+    RH_FilterMart(out, max);
+}
+
+// ---------------------------------------------------------------------------
+// The romhack's special shops (port of the FireRed/Emerald RH_BuildSpecialShop). With "Randomize Special Shops"
+// every slot of every special shop gets a different item; with "Guarantee Evolution Items" each evolution item
+// is sold in one of them. "Guarantee X Items" keeps the training counter as it is.
+// ---------------------------------------------------------------------------
+static BOOL SpecialListKept(u32 list)
+{
+    return list == RH_SPECIAL_TRAINING && S->shopGuaranteeX;
+}
+
+static BOOL IsKeptSpecialItem(const u16 *d, u32 item)
+{
+    u32 l, i;
+    for (l = 0; l < RH_SPECIAL_COUNT; l++)
+        if (SpecialListKept(l))
+            for (i = d[l]; i < d[l + 1]; i++)
+                if (d[i] == item)
+                    return TRUE;
+    return FALSE;
+}
+
+static u32 RandomSpecialShop(const u16 *d, u32 list, u16 *out, u32 max)
+{
+    u16 np = 0;
+    struct RhItem *pool = LoadTable(CODE_ADDON_RH_ITEMS, sizeof(struct RhItem), &np);
+    u16 *acc = pool != NULL ? sys_AllocMemory(RH_SessionHeap(), np * sizeof(u16) + 4) : NULL;
+    u32 l, p, j, k, n = 0, accepted = 0, evoCount = 0, total = 0, offset = d[list] - d[0];
+    u32 len = d[list + 1] - d[list];
+    for (l = 0; l < RH_SPECIAL_COUNT; l++)
+        if (!SpecialListKept(l))
+            total += d[l + 1] - d[l];
+    for (k = 0; k < 2 && acc != NULL; k++)                  // the evolution items first (Guarantee Evolution Items)
+        for (p = 0; p < np; p++)
+        {
+            BOOL evo = S->shopGuaranteeEvo && (pool[p].flags & RHI_EVO);
+            if ((k == 0) == evo && ShopItemAllowed(&pool[p]) && !IsKeptSpecialItem(d, pool[p].item))
+            {
+                acc[accepted++] = pool[p].item;
+                evoCount += evo;
+            }
+        }
+    for (j = 0; j < len && accepted != 0 && n + 1 < max; j++)
+    {
+        u32 r;
+        if (evoCount != 0 && total >= evoCount && accepted > evoCount)
+        {
+            r = RH_Permute(SALT_SPECIAL_SHOP, (offset + j) % total, total);
+            k = r < evoCount ? r : evoCount + (r - evoCount) % (accepted - evoCount);
+        }
+        else
+            k = RH_Permute(SALT_SPECIAL_SHOP, (offset + j) % accepted, accepted);
+        out[n++] = acc[k];
+    }
+    FreeTable(acc);
+    FreeTable(pool);
+    return n;
+}
+
+void RH_BuildSpecialShop(u32 list, u16 *out, u32 max)
+{
+    u16 count = 0;
+    u16 *d = LoadTable(CODE_ADDON_RH_SPECIAL_SHOPS, sizeof(u16), &count);
+    u32 i, n = 0;
+    if (list >= RH_SPECIAL_COUNT)
+        list = 0;
+    if (d != NULL && RH_Active() && S->shopSpecial && !SpecialListKept(list))
+        n = RandomSpecialShop(d, list, out, max);
+    else if (d != NULL)
+        for (i = d[list]; i < d[list + 1] && n + 1 < max; i++)
+            if (d[i] != ITEM_MASTER_BALL || ShopsRandomized())     // Kurt offers the one Master Ball himself
+                out[n++] = d[i];
+    out[n] = 0xFFFF;
+    FreeTable(d);
     RH_FilterMart(out, max);
 }

@@ -14,4 +14,5 @@ void *const gRhCoreTable[RHCT_COUNT] __attribute__((section(".rh_header"))) = {
     [RHCT_STATIC_SPECIES]   = (void *)RH_StaticSpecies,
     [RHCT_STATIC_LEVEL]     = (void *)RH_StaticLevel,
     [RHCT_TRANSFORM_TRADE]  = (void *)RH_TransformTrade,
+    [RHCT_ITEM_PRICE]       = (void *)RH_ItemPrice,
 };

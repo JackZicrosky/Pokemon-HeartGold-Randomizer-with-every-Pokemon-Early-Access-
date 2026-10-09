@@ -563,6 +563,19 @@ BOOL MoveIsHM(u16 moveId)
     return FALSE;
 }
 
+void LONG_CALL Heap_FreeExplicit(u32 heapId, void *ptr);
+
+// romhack: GetItemData (arm9 0x02077D88, hooked) with the randomizer's prices (RH_ItemPrice)
+s32 LONG_CALL RH_GetItemData(u16 item, u16 attrno, u32 heapId)
+{
+    void *data = LoadItemDataOrGfx(item, 0, heapId);
+    s32 ret = GetItemAttr_PreloadedItemData(data, attrno);
+    Heap_FreeExplicit(heapId, data);
+    if (attrno == ITEM_PARAM_PRICE)
+        ret = RHCT_ItemPrice(item, ret);
+    return ret;
+}
+
 s32 LONG_CALL GetItemAttr_PreloadedItemData(ITEMDATA *itemData, u16 attrno)
 {
     switch (attrno) {

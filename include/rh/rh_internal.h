@@ -88,6 +88,7 @@ u32 LONG_CALL RH_StarterForSlot(u32 slot);
 u32 LONG_CALL RH_StaticSpecies(u32 species, u32 map);                   // static Pokemon replacement (species | form << 11)
 u32 LONG_CALL RH_StaticLevel(u32 level);
 void LONG_CALL RH_TransformTrade(u32 tradeno, s32 *tradeData);         // struct NPCTrade as s32 words                              // personal index in Elm's ball 0-2
+u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla);                       // every item price (rh_shops.c)
 void LONG_CALL RH_TransformPersonal(u32 sp, u8 *data);                 // applied to every personal data read
 u32 LONG_CALL RH_SettingsHash(void);                                    // hash of every setting (cache key)
 u32 LONG_CALL RH_EstimateEvoLevel(u32 from, u32 to);                    // FVX estimated evolution level

@@ -60,6 +60,22 @@ struct RhMove { u16 move; u8 flags; u8 pad; };
 #define RHI_CONSUMABLE  0x40     // consumable held items (berries, herbs, Focus Sash...)
 #define RHI_HELD        0x80     // has a hold effect
 struct RhItem { u16 item; u8 flags; u8 pocket; };
+#define RHP_SHOP_ONLY   0x80     // in pocket: only for the shops (the Poke Balls no shop sells, e.g. the Master Ball)
+
+// a028 member 27: the romhack's special shops (tools/rh/gen_rh_special_shops.py): u16 count, u16 pad, then count
+// u16s: start[RH_SPECIAL_COUNT + 1] (offsets into the same array), then the items of every list
+#define CODE_ADDON_RH_SPECIAL_SHOPS 27
+#define RH_SPECIAL_EVO          0    // evolution items (an evolution specialist in every Mart)
+#define RH_SPECIAL_HERB         1    // Goldenrod Underground herb shop
+#define RH_SPECIAL_COMPETITIVE  2    // Dept. Store counters (Goldenrod and Celadon)
+#define RH_SPECIAL_FORMS        3
+#define RH_SPECIAL_MEGA         4
+#define RH_SPECIAL_TRAINING     5
+#define RH_SPECIAL_BERRIES      6
+#define RH_SPECIAL_SNACKS       7
+#define RH_SPECIAL_BALLS        8    // Kurt (Azalea)
+#define RH_SPECIAL_COUNT        9
+#define RH_SPECIAL_MART_BASE    30   // "SpecialMartBuy RH_SPECIAL_MART_BASE + RH_SPECIAL_*" opens a special shop
 
 // a028 member 25: every item ball (key = its number) and hidden item (key = 0x1000 + index), for "Shuffle"
 #define CODE_ADDON_RH_FIELD_ITEMS 25

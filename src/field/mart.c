@@ -204,15 +204,17 @@ static const u16 *const sRhSpecialMarts[] = {
     sPewterMart, sViridianMart, sMtMoonSquare, sMahoganyPreRocketHideout, sMahoganyPostRocketHideout,
 };
 
-static u16 sRhMartBuffer[64];
+static u16 sRhMartBuffer[104];       // the Mega Stone counter has 92 items
 
 // romhack: specialty marts sell their (randomized) stock (Shop Items)
 BOOL ScrCmd_SpecialMartBuy(SCRIPTCONTEXT *ctx)
 {
     u16 which = ScriptGetVar(ctx);
-    if (which >= NELEMS(sRhSpecialMarts))
-        which = 0;
-    RH_BuildMart(sRhSpecialMarts, NELEMS(sRhSpecialMarts), which, sRhMartBuffer, NELEMS(sRhMartBuffer));
+    if (which >= RH_SPECIAL_MART_BASE && which < RH_SPECIAL_MART_BASE + RH_SPECIAL_COUNT)
+        RH_BuildSpecialShop(which - RH_SPECIAL_MART_BASE, sRhMartBuffer, NELEMS(sRhMartBuffer));   // the romhack's shops
+    else
+        RH_BuildMart(sRhSpecialMarts, NELEMS(sRhSpecialMarts), which < NELEMS(sRhSpecialMarts) ? which : 0,
+                     sRhMartBuffer, NELEMS(sRhMartBuffer));
     InitMartUI(ctx->taskman, ctx->fsys, sRhMartBuffer, 0, 0, 0, 0);
     return TRUE;
 }
