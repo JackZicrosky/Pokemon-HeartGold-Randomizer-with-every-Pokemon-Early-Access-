@@ -1,1 +1,1 @@
-Custom item description
+Opens the randomizer\nsettings to change\nor reset your run.

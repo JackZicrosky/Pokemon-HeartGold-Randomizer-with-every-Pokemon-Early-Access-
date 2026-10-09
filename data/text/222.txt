@@ -1821,11 +1821,11 @@ Genome Slate
 Discovery Slate
 Distortion Slate
 DS Sounds
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 Legend Plate
 Rotom Phone
 Sandwich
@@ -1835,30 +1835,30 @@ Tera Orb
 Scarlet Book
 Violet Book
 Kofu’s Wallet
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 Tiny Bamboo Shoot
 Big Bamboo Shoot
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 Scroll of Darkness
 Scroll of Waters
-
-
+ 
+ 
 Malicious Armor
 Normal Tera Shard
 Fire Tera Shard
@@ -1885,7 +1885,7 @@ Mirror Herb
 Punching Glove
 Covert Cloak
 Loaded Dice
-
+ 
 Baguette
 Mayonnaise
 Ketchup
@@ -1945,15 +1945,15 @@ Curry Powder
 Wasabi
 Watercress
 Basil
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 Venonat Fang
 Diglett Dirt
 Meowth Fur
@@ -2098,9 +2098,9 @@ Hatenna Dust
 Stonjourner Stone
 Eiscue Down
 Dreepy Powder
-
-
-
+ 
+ 
+ 
 Lechonk Hair
 Tarountula Thread
 Nymble Claw
@@ -2122,8 +2122,8 @@ Frigibax Scales
 Tatsugiri Scales
 Cyclizar Scales
 Pawmi Fur
-
-
+ 
+ 
 Wattrel Feather
 Bombirdier Feather
 Squawkabilly Feather
@@ -2136,24 +2136,24 @@ Fidough Fur
 Maschiff Fang
 Bramblin Twig
 Gimmighoul Coin
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 Tinkatink Hair
 Charcadet Soot
 Toedscool Flaps
@@ -2288,29 +2288,29 @@ TM226
 TM227
 TM228
 TM229
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 Picnic Set
-
+ 
 Academy Bottle
 Academy Bottle
 Polka-Dot Bottle
@@ -2326,7 +2326,7 @@ Academy Tablecloth
 Whimsical Tablecloth
 Leafy Tablecloth
 Spooky Tablecloth
-
+ 
 Academy Ball
 Academy Ball
 Marill Ball
@@ -2341,11 +2341,11 @@ Winking Pika Pick
 Vee-Vee Pick
 Smiling Vee Pick
 Blue Poké Ball Pick
-
+ 
 Auspicious Armor
 Leader’s Crest
-
-
+ 
+ 
 Pink Bottle
 Blue Bottle
 Yellow Bottle
@@ -2683,3 +2683,4 @@ Hyper Babiri Berry
 Hyper Chilan Berry
 Hyper Roseli Berry
 Canari Bread
+Rando Settings

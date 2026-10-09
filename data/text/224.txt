@@ -1,1 +1,1 @@
-{COLOR 255}Custom Items{COLOR 0}
+Randomizer Settings

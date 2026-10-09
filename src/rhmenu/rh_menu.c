@@ -705,7 +705,7 @@ static const struct RhRow sRows[] =
 
 static u8 sSection, sRow, sScroll, sMenuOpen, sMenuCursor, sConfirm, sPendingAction;
 static u8 sCodeMode, sCodeLen, sCodeCursor, sPresetUsed;
-static u8 sExitTo;                     // 0 = still open, 1 = begin (Oak's speech)
+static u8 sExitTo;                     // 0 = still open, 1 = begin (Oak's speech) / apply (in-game), 2 = leave unchanged
 static const char *sMessage;
 
 // text entry (seed / starters / type / BST)
@@ -1966,7 +1966,14 @@ static void HandleInput(void)
                 sExitTo = 1;
                 return;
             }
-            if (sConfirm == 1 && (sPendingAction == ACT_EXIT || sPendingAction == ACT_RESET_RUN_2))
+            if (sConfirm == 1 && sPendingAction == ACT_EXIT)
+            {
+                sConfirm = 0;
+                PlaySE(SEQ_SE_DP_DECIDE);
+                sExitTo = 2;                  // back to the game, nothing changed
+                return;
+            }
+            if (sConfirm == 1 && sPendingAction == ACT_RESET_RUN_2)
             {
                 sConfirm = 0;
                 PlaySE(SEQ_SE_DP_BEEP);
@@ -2113,16 +2120,24 @@ static BOOL MenuInit(void *manager, int *state)
 
 static BOOL MenuExec(void *manager, int *state)
 {
-    (void)manager;
     switch (*state)
     {
     case ST_SETUP:
-        RH_SetDefaultSettings(S);
+        // opened from the Randomizer Settings key item (RH_OpenSettingsFromField passes args): edit the run's
+        // settings; at New Game: the defaults with a new seed
+        sInGame = OverlayManager_GetArgs(manager) != NULL;
+        if (sInGame)
+        {
+            sPending = *RH_Settings();
+        }
+        else
+        {
+            RH_SetDefaultSettings(S);
 #if RH_TEST
-        S->instantText = TRUE;                // test builds: fast text for the emulator tests
+            S->instantText = TRUE;            // test builds: fast text for the emulator tests
 #endif
-        RandomSeedText();
-        sInGame = FALSE;
+            RandomSeedText();
+        }
         sExitTo = 0;
         sMenuOpen = sConfirm = sCodeMode = sEditing = FALSE;
         sMessage = NULL;
@@ -2163,14 +2178,17 @@ static BOOL MenuExit(void *manager, int *state)
 {
     (void)manager;
     (void)state;
-    // Begin Run: the settings go into the new save, then Professor Oak's speech starts
+    // Begin Run: the settings go into the new save, then Professor Oak's speech starts.
+    // In-game: Apply & Return changes the run's settings (kept when the player saves); Exit changes nothing.
     S->magic = RH_SETTINGS_MAGIC;
     if (S->seed == 0)
         S->seed = 1;
-    *RH_Settings() = sPending;
+    if (!sInGame || sExitTo == 1)
+        *RH_Settings() = sPending;
     sys_FreeMemoryEz(sBuf[SCR_TOP]);
     sys_FreeMemoryEz(sBuf[SCR_BOTTOM]);
     Heap_Destroy(HEAPID_RH_MENU);
-    RH_RegisterMainOverlay(0xFFFFFFFF, APP_OAK_SPEECH);
+    if (!sInGame)
+        RH_RegisterMainOverlay(0xFFFFFFFF, APP_OAK_SPEECH);
     return TRUE;
 }

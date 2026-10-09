@@ -6,6 +6,7 @@
 
 // "nop_var_490 VAR" (vanilla script command 490, a no-op) runs the romhack special in VAR:
 #define RH_SPECIAL_ITEM_BALL 1          // VAR_SPECIAL_x8004 = item, VAR_SPECIAL_x800A = item ball number -> new item
+#define RH_SPECIAL_OPEN_SETTINGS 3      // the options screen (Randomizer Settings key item); waits until it closes
 #define RH_SPECIAL_MASTER_BALL_OFFER 2  // VAR_SPECIAL_RESULT = 1: Kurt offers his one Master Ball (shops not randomized)
 
 u32 RH_FieldItem(u32 item, u32 key);    // key: item ball number, or RH_FIELD_KEY_HIDDEN + hidden item index

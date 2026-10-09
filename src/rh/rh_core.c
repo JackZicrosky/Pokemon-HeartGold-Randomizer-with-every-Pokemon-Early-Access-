@@ -2,6 +2,7 @@
 #include "../../include/types.h"
 #include "../../include/save.h"
 #include "../../include/constants/file.h"
+#include "../../include/constants/item.h"
 #include "../../include/rh/rh.h"
 #include "../../include/rh/rh_internal.h"
 
@@ -96,11 +97,25 @@ u32 RH_Random(u32 salt, u32 a, u32 b, u32 n)
 #define MAIN_NEXT_OVERLAY  (*(u32 *)0x02111870)
 #define MAIN_NEXT_TEMPLATE (*(const void **)0x02111874)
 #define APP_OAK_SPEECH     ((const void *)0x02106068)
+#define APP_NEW_GAME_FIELD ((const void *)0x020FA15C)   // pret gApplication_NewGameFieldsys (after Oak's speech)
+#define APP_CONTINUE_FIELD ((const void *)0x020FA16C)   // pret gApplication_ContinueFieldsys
 
 static u8 sMenuShown;
 
+void *LONG_CALL SaveBlock2_get(void);
+
+// Everyone has the Randomizer Settings key item: given when a new game's field starts (and on Continue, if missing)
+static void GiveKeyItems(void)
+{
+    void *bag = Sav2_Bag_get(SaveBlock2_get());
+    if (!Bag_HasItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3))
+        Bag_AddItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3);
+}
+
 void RH_RegisterMainOverlay(u32 ovyId, const void *template)
 {
+    if (template == APP_NEW_GAME_FIELD || template == APP_CONTINUE_FIELD)
+        GiveKeyItems();
     if (template == APP_OAK_SPEECH && !sMenuShown) {
         // a new game: show the options first; the options screen registers Oak's speech when it closes
         ovyId = OVERLAY_RH_MENU;
@@ -212,4 +227,33 @@ void RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId)
     {
         RH_TransformEncounters(fileId, dest);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The options screen from the Randomizer Settings key item (script command 490, RH_SPECIAL_OPEN_SETTINGS).
+// Its app template is inside overlay 153, which isn't loaded while the map is: the field gets a template of
+// wrappers here (resident) that call the real functions once the app has loaded the overlay. The non-NULL
+// args tell the options screen it was opened in-game.
+// ---------------------------------------------------------------------------
+struct AppTemplate
+{
+    BOOL (*init)(void *manager, int *state);
+    BOOL (*exec)(void *manager, int *state);
+    BOOL (*exit)(void *manager, int *state);
+    u32 ovyId;
+};
+#define MENU_APP ((const struct AppTemplate *)RH_MENU_APP_TEMPLATE)
+
+static BOOL MenuInitWrapper(void *manager, int *state) { return MENU_APP->init(manager, state); }
+static BOOL MenuExecWrapper(void *manager, int *state) { return MENU_APP->exec(manager, state); }
+static BOOL MenuExitWrapper(void *manager, int *state) { return MENU_APP->exit(manager, state); }
+
+static const struct AppTemplate sMenuFromField = { MenuInitWrapper, MenuExecWrapper, MenuExitWrapper, OVERLAY_RH_MENU };
+static u32 sMenuInGameArgs = 1;
+
+void LONG_CALL FieldSystem_LaunchApplication(void *fieldSystem, const void *template, void *args);
+
+void RH_OpenSettingsFromField(void *fieldSystem)
+{
+    FieldSystem_LaunchApplication(fieldSystem, &sMenuFromField, &sMenuInGameArgs);
 }

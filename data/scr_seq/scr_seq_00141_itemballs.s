@@ -264,6 +264,7 @@ scrdef scr_seq_0141_252
 scrdef scr_seq_0141_253
 scrdef scr_seq_0141_254
 scrdef ItemBallCommon
+scrdef RhRandomizerSettings
 scrdef RhShop_Evo
 scrdef RhShop_Competitive
 scrdef RhShop_Forms
@@ -2056,6 +2057,31 @@ scr_seq_0141_254:
     setvar VAR_SPECIAL_x8009, 1
     setvar VAR_SPECIAL_x800A, 254
     goto ItemBallCommon
+    end
+
+RhRandomizerSettings:
+    lockall
+    npc_msg 17
+    npc_msg 18
+    touchscreen_menu_hide
+    getmenuchoice VAR_SPECIAL_RESULT
+    touchscreen_menu_show
+    compare VAR_SPECIAL_RESULT, 0
+    goto_if_ne RhRandomizerSettingsEnd
+    closemsg
+    fade_screen 6, 1, 0, 0
+    wait_fade
+    setvar VAR_SPECIAL_RESULT, 3
+    nop_var_490 VAR_SPECIAL_RESULT
+    restore_overworld
+    fade_screen 6, 1, 1, 0
+    wait_fade
+    releaseall
+    end
+
+RhRandomizerSettingsEnd:
+    closemsg
+    releaseall
     end
 
 RhShop_Evo:

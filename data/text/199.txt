@@ -15,3 +15,5 @@ Mega Stones from every region!\nYou’ll need a Mega Ring to use them.\r
 Serious Trainers shop here.\nWe help Pokémon reach full potential.\r
 Berries from all over the world!\nFresh picked, every one.\r
 Famous treats from every region!\nPokémon love them.\r
+WARNING!\nChanging the settings mid-run\rcan BREAK your current playthrough.\nPokémon, Trainers and items may\fall change.\rBe careful when using this!\r
+Open the Randomizer Settings? {YESNO 0}

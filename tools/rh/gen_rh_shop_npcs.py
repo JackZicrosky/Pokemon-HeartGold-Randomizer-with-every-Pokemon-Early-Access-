@@ -12,6 +12,14 @@ sys.path.insert(0, 'tools/rh')
 
 BANK = 199
 FIRST_INDEX = 256                  # entries 0-254 = item balls, 255 = ItemBallCommon (gen_rh_items.py)
+SETTINGS_INDEX = FIRST_INDEX       # the Randomizer Settings key item's script (src/item.c RH_SCRIPT_RANDOMIZER_SETTINGS)
+SHOPS_INDEX = FIRST_INDEX + 1
+RH_SPECIAL_OPEN_SETTINGS = 3       # include/rh/rh_items.h
+SETTINGS_TEXTS = [
+    r'WARNING!\nChanging the settings mid-run\rcan BREAK your current playthrough.\n'
+    r'Pokémon, Trainers and items may\fall change.\rBe careful when using this!\r',
+    r'Open the Randomizer Settings? {YESNO 0}',
+]
 RH_SPECIAL_MART_BASE = 30          # include/rh/rh_data.h
 
 # name: (RH_SPECIAL_* list, sprite, greeting)
@@ -42,13 +50,38 @@ FACING_DOWN = 1
 
 
 def script_id(name):
-    return 7000 + FIRST_INDEX + ORDER.index(name)
+    return 7000 + SHOPS_INDEX + ORDER.index(name)
 
 
 def scripts(first_msg):
-    """scrdef lines and bodies for scr_seq 141 (hg-engine syntax); first_msg = text number of the first greeting"""
-    defs = ['scrdef RhShop_%s' % n for n in ORDER]
-    body = []
+    """scrdef lines and bodies for scr_seq 141 (hg-engine syntax); first_msg = this module's first text number"""
+    assert 7000 + SETTINGS_INDEX == 7256
+    defs = ['scrdef RhRandomizerSettings'] + ['scrdef RhShop_%s' % n for n in ORDER]
+    warn, ask = first_msg + len(ORDER), first_msg + len(ORDER) + 1
+    body = ['RhRandomizerSettings:',
+            '    lockall',
+            '    npc_msg %d' % warn,
+            '    npc_msg %d' % ask,
+            '    touchscreen_menu_hide',
+            '    getmenuchoice VAR_SPECIAL_RESULT',
+            '    touchscreen_menu_show',
+            '    compare VAR_SPECIAL_RESULT, 0',
+            '    goto_if_ne RhRandomizerSettingsEnd',
+            '    closemsg',
+            '    fade_screen 6, 1, 0, 0',
+            '    wait_fade',
+            '    setvar VAR_SPECIAL_RESULT, %d' % RH_SPECIAL_OPEN_SETTINGS,
+            '    nop_var_490 VAR_SPECIAL_RESULT',
+            '    restore_overworld',
+            '    fade_screen 6, 1, 1, 0',
+            '    wait_fade',
+            '    releaseall',
+            '    end',
+            '',
+            'RhRandomizerSettingsEnd:',
+            '    closemsg',
+            '    releaseall',
+            '    end', '']
     for i, n in enumerate(ORDER):
         body += ['RhShop_%s:' % n,
                  '    play_se SEQ_SE_DP_SELECT',
@@ -65,7 +98,7 @@ def scripts(first_msg):
 def main():
     from gen_rh_trade_scripts import text_bank
     lines = [line if line != '' else ' ' for line in text_bank(BANK)]
-    lines += [SELLERS[n][2] for n in ORDER]
+    lines += [SELLERS[n][2] for n in ORDER] + SETTINGS_TEXTS
     open('data/text/%03d.txt' % BANK, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
     print('shop NPC greetings: messages', len(lines) - len(ORDER), '-', len(lines) - 1)
 

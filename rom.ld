@@ -922,3 +922,9 @@ IsPaletteFadeFinished = 0x0200FB5C | 1;
 GenerateFontHalfRowLookupTable = 0x0202036C | 1;
 RenderFont = 0x02020358 | 1;
 DestroyTextPrinter = 0x02020020 | 1;
+
+/* romhack */
+FieldSystem_LaunchApplication = 0x0203DFB4 | 1;
+QueueScript = 0x0203FED4 | 1;
+SetupNativeScript = 0x0203FD58 | 1;
+ScrNative_WaitApplication = 0x020429F8 | 1;

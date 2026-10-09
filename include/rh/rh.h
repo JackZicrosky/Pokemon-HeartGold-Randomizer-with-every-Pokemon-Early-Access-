@@ -26,6 +26,7 @@ void LONG_CALL RH_RegisterMainOverlay(u32 ovyId, const void *template);
 u32 LONG_CALL RH_Hash(u32 salt, u32 a, u32 b);            // deterministic, seed-dependent hash
 u32 LONG_CALL RH_Random(u32 salt, u32 a, u32 b, u32 n);   // RH_Hash(...) % n
 void LONG_CALL RH_ReadWholeNarcMemberByIdPair(void *dest, u32 narcId, s32 fileId);
+void LONG_CALL RH_OpenSettingsFromField(void *fieldSystem);      // the options screen in-game (key item)
 
 // RAM in overlay 129 (always loaded) for the core's large per-settings tables (src/rh_boot.c)
 #define RH_RESIDENT_SIZE 4096

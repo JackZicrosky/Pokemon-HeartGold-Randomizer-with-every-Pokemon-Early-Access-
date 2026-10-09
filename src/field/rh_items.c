@@ -191,6 +191,9 @@ u32 RH_FieldItem(u32 item, u32 key)
 // ---------------------------------------------------------------------------
 // The romhack's script command: "nop_var_490 VAR" with VAR = RH_SPECIAL_* (other inputs in VAR_SPECIAL_x8004..)
 // ---------------------------------------------------------------------------
+void LONG_CALL SetupNativeScript(SCRIPTCONTEXT *ctx, BOOL (*fn)(SCRIPTCONTEXT *ctx));
+BOOL LONG_CALL ScrNative_WaitApplication(SCRIPTCONTEXT *ctx);
+
 static BOOL ShopsRandomized(void)
 {
     return RH_Active() && (S->shopItems != 0 || S->shopSpecial);
@@ -208,6 +211,11 @@ BOOL ScrCmd_RhSpecial(SCRIPTCONTEXT *ctx)
         *item = RH_FieldItem(*item, VarGet(ctx->fsys, 0x800A));
         break;
     }
+    case RH_SPECIAL_OPEN_SETTINGS:
+        // the Randomizer Settings key item: the options screen in-game; the script waits for it to close
+        RH_OpenSettingsFromField(ctx->fsys);
+        SetupNativeScript(ctx, ScrNative_WaitApplication);
+        return TRUE;
     case RH_SPECIAL_MASTER_BALL_OFFER:
         // Kurt offers his one Master Ball himself when the shops aren't randomized (else it's in his shop)
         *GetVarPointer(ctx->fsys, 0x800C) = !ShopsRandomized();

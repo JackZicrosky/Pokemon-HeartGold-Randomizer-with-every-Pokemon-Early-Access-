@@ -379,6 +379,8 @@ void ItemMenuUseFunc_AbilityCapsule(struct ItemMenuUseData *data, const struct I
 void ItemMenuUseFunc_Mint(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED);
 void ItemMenuUseFunc_Nectar(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED);
 void ItemMenuUseFunc_RotomCatalog(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED);
+void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2);
+BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data);
 
 const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_RevealGlass, ItemFieldUseFunc_RevealGlass, NULL },
@@ -387,6 +389,7 @@ const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_Mint, NULL, NULL },
     { ItemMenuUseFunc_Nectar, NULL, NULL },
     { ItemMenuUseFunc_RotomCatalog, NULL, NULL },
+    { ItemMenuUseFunc_RandomizerSettings, ItemFieldUseFunc_RandomizerSettings, NULL }, // romhack: field use 36
 };
 
 extern const struct ItemUseFuncDat sItemFieldUseFuncs[NUM_VANILLA_FIELD_USE_FUNCS];
@@ -690,4 +693,39 @@ void ItemMenuUseFunc_RotomCatalog(struct ItemMenuUseData *data, const struct Ite
     struct BagViewAppWork *env = data->taskManager->env; // TaskManager_GetEnvironment(data->taskManager);
     env->atexit_TaskEnv = sub_0203FAE8(fieldSystem, HEAPID_WORLD, ITEM_ROTOM_CATALOG);
     sub_0203C8F0(env, 0x0203CA9C | 1);
+}
+
+// ---------------------------------------------------------------------------
+// romhack: the Randomizer Settings key item runs its script (the item ball script file's entry
+// RH_SCRIPT_RANDOMIZER_SETTINGS: a warning, YES/NO, then the options screen), from the bag or registered to Y.
+// ---------------------------------------------------------------------------
+#define RH_SCRIPT_RANDOMIZER_SETTINGS 7256      // tools/rh/gen_rh_shop_npcs.py SETTINGS_INDEX
+void LONG_CALL FieldSystem_LoadFieldOverlay(FieldSystem *fieldSystem);
+void LONG_CALL QueueScript(TaskManager *taskman, u16 script, void *lastInteracted, void *a3);
+void LONG_CALL EventSet_Script(FieldSystem *fieldSystem, u16 script, void *lastInteracted);
+
+static BOOL Task_RandomizerSettingsScript(TaskManager *taskman)
+{
+    if (taskman->state == 0)
+    {
+        QueueScript(taskman, RH_SCRIPT_RANDOMIZER_SETTINGS, NULL, NULL);
+        taskman->state++;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED)
+{
+    struct BagViewAppWork *env = data->taskManager->env;
+    FieldSystem_LoadFieldOverlay(data->taskManager->fieldSystem);
+    env->atexit_TaskFunc = Task_RandomizerSettingsScript;
+    env->atexit_TaskEnv = NULL;
+    env->state = 12;                            // leave the bag, then run the task (pret: exitTaskFunc, state 12)
+}
+
+BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data)
+{
+    EventSet_Script(data->fieldSystem, RH_SCRIPT_RANDOMIZER_SETTINGS, NULL);
+    return FALSE;
 }
