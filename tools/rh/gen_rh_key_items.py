@@ -3,7 +3,7 @@
 # item data (data/itemdata/itemdata.c), name (text bank 222, by item id), description / article / plural / "give"
 # texts (custom item banks 221, 223, 224, 829, by custom index), icon (data/graphics/itemgra.mk: member item + 2,
 # before the dummy and return icons). Idempotent.
-# Usage: python3 tools/rh/gen_rh_key_items.py   (from the repository root; run gen_rh_settings_icon.py for the icon)
+# Usage: python3 tools/rh/gen_rh_key_items.py   (from the repository root; the icon is the owner's pixel art, data/graphics/item/rh_randomizer_settings.png)
 import re
 
 ITEM_ID = 2685                     # include/constants/item.h ITEM_RANDOMIZER_SETTINGS
