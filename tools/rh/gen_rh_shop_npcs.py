@@ -16,6 +16,9 @@ SETTINGS_INDEX = FIRST_INDEX       # the Randomizer Settings key item's script (
 SHOPS_INDEX = FIRST_INDEX + 1
 HEALING_KIT_INDEX = SHOPS_INDEX + 7  # the Healing Kit key item's script (src/item.c RH_SCRIPT_HEALING_KIT)
 HEALING_TEXT = r'Your Pokémon were fully healed!'
+HM_KIT_INDEX = HEALING_KIT_INDEX + 1  # the HM Kit's explanation (src/item.c RH_SCRIPT_HM_KIT_INFO)
+HM_KIT_TEXT = (r'The HM Kit works by itself: just walk\nup to a tree, rock, boulder, whirlpool,\r'
+               r'waterfall, rock wall or water.\rFrom the Bag it can Fly you once you\nhave HM02 and the Storm Badge.\r')
 RH_SPECIAL_OPEN_SETTINGS = 3       # include/rh/rh_items.h
 SETTINGS_TEXTS = [
     r'WARNING!\nChanging the settings mid-run\rcan BREAK your current playthrough.\n'
@@ -107,13 +110,20 @@ def scripts(first_msg):
              '    closemsg',
              '    releaseall',
              '    end', '']
+    defs.append('scrdef RhHMKitInfo')
+    body += ['RhHMKitInfo:',
+             '    lockall',
+             '    npc_msg %d' % (ask + 2),
+             '    closemsg',
+             '    releaseall',
+             '    end', '']
     return defs, body
 
 
 def main():
     from gen_rh_trade_scripts import text_bank
     lines = [line if line != '' else ' ' for line in text_bank(BANK)]
-    lines += [SELLERS[n][2] for n in ORDER] + SETTINGS_TEXTS + [HEALING_TEXT]
+    lines += [SELLERS[n][2] for n in ORDER] + SETTINGS_TEXTS + [HEALING_TEXT, HM_KIT_TEXT]
     open('data/text/%03d.txt' % BANK, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
     print('shop NPC greetings: messages', len(lines) - len(ORDER), '-', len(lines) - 1)
 

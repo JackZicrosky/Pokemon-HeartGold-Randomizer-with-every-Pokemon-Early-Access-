@@ -1,3 +1,4 @@
 Rando Settings
 Infinite Candies
 Healing Kits
+HM Kits

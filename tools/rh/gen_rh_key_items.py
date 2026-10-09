@@ -21,6 +21,9 @@ ITEMS = [
     ('HEALING_KIT', 'Healing Kit',
      r'Fully heals your\nwhole party, just\nlike a Pokémon Center.',
      'a Healing Kit', 'Healing Kits', 'rh_healing_kit', ('key', 37)),
+    ('HM_KIT', 'HM Kit',
+     r'Uses the HMs you\nown (with Badges)\nwithout a Pokémon.',
+     'an HM Kit', 'HM Kits', 'rh_hm_kit', ('key', 38)),
 ]
 
 KEY_ITEM_DATA = '''[ITEM_%s] =

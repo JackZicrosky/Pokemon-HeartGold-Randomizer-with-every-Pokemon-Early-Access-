@@ -2698,8 +2698,10 @@
 // romhack: Nuzlocke Mode's key items (a Rare Candy that is never used up; heals the party anywhere)
 #define ITEM_INFINITE_CANDY      (MAX_BASE_ITEM_NUM + 2)
 #define ITEM_HEALING_KIT         (MAX_BASE_ITEM_NUM + 3)
+// romhack: counts as every HM you own whose Badge you have (no Pokemon needs to know it)
+#define ITEM_HM_KIT              (MAX_BASE_ITEM_NUM + 4)
 
-#define MAX_TOTAL_ITEM_NUM ITEM_HEALING_KIT
+#define MAX_TOTAL_ITEM_NUM ITEM_HM_KIT
 
 #define NUM_MEGA_STONES (48) // includes the pixie plate, doesn't include plza megas due to overflowing bag
 #define NUM_HMS         (ITEM_HM08 - ITEM_HM01 + 1) // intentionally do not include HM07_ORAS (Dive)

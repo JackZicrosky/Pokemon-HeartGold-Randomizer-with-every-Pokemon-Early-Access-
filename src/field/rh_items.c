@@ -409,3 +409,19 @@ void RH_BuildSpecialShop(u32 list, u16 *out, u32 max)
     FreeTable(d);
     RH_FilterMart(out, max);
 }
+
+// ---------------------------------------------------------------------------
+// GetPartySlotWithMove (script command 141): through GetIdxOfFirstPartyMonWithMove, so the HM Kit counts
+// (src/item.c RH_GetIdxOfFirstPartyMonWithMove)
+// ---------------------------------------------------------------------------
+u8 LONG_CALL GetIdxOfFirstPartyMonWithMove(void *party, u16 move);
+void *LONG_CALL SaveArray_Party_Get(void *saveData);
+
+BOOL ScrCmd_GetPartySlotWithMove(SCRIPTCONTEXT *ctx)
+{
+    u16 *slot = ScriptGetVarPointer(ctx);
+    u16 move = ScriptGetVar(ctx);
+    u8 i = GetIdxOfFirstPartyMonWithMove(SaveArray_Party_Get(ctx->fsys->savedata), move);
+    *slot = (i == 0xFF) ? 6 : i;
+    return FALSE;
+}

@@ -6,6 +6,7 @@
 #   A10               hold A for 10 frames                W60   wait 60 frames
 #   T123,73           touch the bottom screen             shot:name   screenshot to OUTDIR/name.png
 #   mash:N            press A N times, 25 frames apart    bmash:N     same with B
+#   badges:BITS       set the Johto badges of the player profile (test saves' name AAAAAAA)
 #   poke8:ADDR:V poke16:ADDR:V poke32:ADDR:V   write memory      rh:FIELD_OFFSET:V   write a byte of the RhSettings
 #   save:FILE         export the cartridge save          state:FILE  savestate (only valid for this build)
 #   pos               print the map / coordinates
@@ -213,6 +214,14 @@ def main():
             kind, addr, v = t.split(':')
             addr, v = int(addr, 0), int(v, 0)
             {"poke8": h.emu.memory.write_byte, "poke16": h.emu.memory.write_short, "poke32": h.emu.memory.write_long}[kind](addr, v)
+        elif t.startswith('badges:'):
+            # badges:JOHTO_BITS  the player profile (found by the test saves' name AAAAAAA) Johto badge byte
+            ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+            name = bytes.fromhex('2b01' * 7 + 'ffff')
+            i = ram.find(name)
+            while i >= 0:
+                h.emu.memory.write_byte(0x02000000 + i + 0x1A, int(t.split(':')[1], 0))
+                i = ram.find(name, i + 1)
         elif t.startswith('rh:'):
             _, off, v = t.split(':')
             # every copy: the save's, and the options screen's (which may linger in freed memory)

@@ -104,11 +104,13 @@ static u8 sMenuShown;
 
 void *LONG_CALL SaveBlock2_get(void);
 
-// Everyone has the Randomizer Settings key item, Nuzlocke Mode adds the Infinite Candy and the Healing Kit: given
+// Everyone has the HM Kit and the Randomizer Settings key item, Nuzlocke Mode adds the Infinite Candy and the Healing Kit: given
 // when a new game's field starts (and on Continue, if missing)
 void RH_GiveKeyItems(void)
 {
     void *bag = Sav2_Bag_get(SaveBlock2_get());
+    if (!Bag_HasItem(bag, ITEM_HM_KIT, 1, 3))
+        Bag_AddItem(bag, ITEM_HM_KIT, 1, 3);
     if (!Bag_HasItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3))
         Bag_AddItem(bag, ITEM_RANDOMIZER_SETTINGS, 1, 3);
     if (RH_Active() && RH_Settings()->nuzlocke)        // Nuzlocke Mode: Infinite Candy and Healing Kit

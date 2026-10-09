@@ -609,6 +609,10 @@ arm9 ScrCmd_WildBattle 02043E5C 1
 
 arm9 GetItemAttr_PreloadedItemData 02077DAC 2
 arm9 RH_GetItemData 02077D88 3
+# romhack: the HM Kit (src/item.c) - the field's "which Pokemon knows this move" (Surf, Waterfall) and the scripts'
+# GetPartySlotWithMove (Cut, Rock Smash, Strength, Rock Climb, Waterfall, Whirlpool: src/field/rh_items.c)
+arm9 RH_GetIdxOfFirstPartyMonWithMove 020542E8 2
+arm9 ScrCmd_GetPartySlotWithMove 0204D3CC 2
 0012 TryUseHeldItem 0225471C 3
 0012 TryFling 02255F7C 3
 

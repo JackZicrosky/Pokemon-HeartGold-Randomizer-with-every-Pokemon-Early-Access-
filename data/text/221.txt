@@ -1,3 +1,4 @@
 Opens the randomizer\nsettings to change\nor reset your run.
 A Rare Candy that\nnever runs out.\nRaises a level.
 Fully heals your\nwhole party, just\nlike a Pokémon Center.
+Uses the HMs you\nown (with Badges)\nwithout a Pokémon.

@@ -174640,5 +174640,24 @@ const ITEMDATA __data[] =
     .partyUse = 0,
 },
 
+[ITEM_HM_KIT] =
+{
+    ITEM_PRICE(0),
+    .holdEffect = 0,
+    .holdEffectParam = 0,
+    .pluckEffect = 0,
+    .flingEffect = 0,
+    .flingPower = 0,
+    .naturalGiftPower = 0,
+    .naturalGiftType = 31,
+    .prevent_toss = TRUE,
+    .selectable = TRUE,
+    .fieldPocket = POCKET_KEY_ITEMS,
+    .battlePocket = BATTLE_POCKET_NONE,
+    .fieldUseFunc = 38,
+    .battleUseFunc = 0,
+    .partyUse = 0,
+},
+
 // end of romhack key items
 };

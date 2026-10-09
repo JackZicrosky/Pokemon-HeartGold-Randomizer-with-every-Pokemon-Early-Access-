@@ -383,6 +383,8 @@ void ItemMenuUseFunc_RandomizerSettings(struct ItemMenuUseData *data, const stru
 BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data);
 void ItemMenuUseFunc_HealingKit(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2);
 BOOL ItemFieldUseFunc_HealingKit(struct ItemFieldUseData *data);
+void ItemMenuUseFunc_HMKit(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2);
+BOOL ItemFieldUseFunc_HMKit(struct ItemFieldUseData *data);
 
 const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_RevealGlass, ItemFieldUseFunc_RevealGlass, NULL },
@@ -393,6 +395,7 @@ const struct ItemUseFuncDat sNewItemFieldUseFuncs[] = {
     { ItemMenuUseFunc_RotomCatalog, NULL, NULL },
     { ItemMenuUseFunc_RandomizerSettings, ItemFieldUseFunc_RandomizerSettings, NULL }, // romhack: field use 36
     { ItemMenuUseFunc_HealingKit, ItemFieldUseFunc_HealingKit, NULL },                 // romhack: field use 37
+    { ItemMenuUseFunc_HMKit, ItemFieldUseFunc_HMKit, NULL },                           // romhack: field use 38
 };
 
 extern const struct ItemUseFuncDat sItemFieldUseFuncs[NUM_VANILLA_FIELD_USE_FUNCS];
@@ -704,6 +707,7 @@ void ItemMenuUseFunc_RotomCatalog(struct ItemMenuUseData *data, const struct Ite
 // ---------------------------------------------------------------------------
 #define RH_SCRIPT_RANDOMIZER_SETTINGS 7256      // SETTINGS_INDEX
 #define RH_SCRIPT_HEALING_KIT         7264      // HEALING_KIT_INDEX
+#define RH_SCRIPT_HM_KIT_INFO         7265      // HM_KIT_INDEX: how the HM Kit works
 static u16 sRhItemScript;
 void LONG_CALL FieldSystem_LoadFieldOverlay(FieldSystem *fieldSystem);
 void LONG_CALL QueueScript(TaskManager *taskman, u16 script, void *lastInteracted, void *a3);
@@ -749,5 +753,83 @@ BOOL ItemFieldUseFunc_HealingKit(struct ItemFieldUseData *data)
 BOOL ItemFieldUseFunc_RandomizerSettings(struct ItemFieldUseData *data)
 {
     EventSet_Script(data->fieldSystem, RH_SCRIPT_RANDOMIZER_SETTINGS, NULL);
+    return FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// romhack: the HM Kit (port of the FireRed/Emerald RH_HMKitCovers): it counts as an HM's move once the player owns
+// that HM and has its Badge; the first Pokemon that isn't an Egg then uses the move. Walking up to a tree, rock,
+// boulder, whirlpool, waterfall, rock wall or water works by itself; from the bag it Flies (else it explains itself).
+// ---------------------------------------------------------------------------
+void *LONG_CALL SaveArray_Party_Get(void *saveData);
+int LONG_CALL Party_GetCount(void *party);
+
+struct RhFieldMoveCheckData { u32 mapId; FieldSystem *fieldSystem; void *facingObject; u16 flag; };
+struct RhFieldMoveUseData { TaskManager *taskManager; u16 partySlot; u16 fieldMoveIdx; };
+void LONG_CALL FieldMove_InitCheckData(FieldSystem *fieldSystem, struct RhFieldMoveCheckData *checkData);
+u32 LONG_CALL FieldMove_CheckFly(const struct RhFieldMoveCheckData *checkData);
+void LONG_CALL FieldMove_UseFly(struct RhFieldMoveUseData *useData, const struct RhFieldMoveCheckData *checkData);
+
+// move, its HM, the Badge it needs (badge flags: Zephyr 0, Hive 1, Plain 2, Fog 3, Storm 4, Mineral 5, Glacier 6,
+// Rising 7, Kanto 8-15: Earth 15)
+static const u16 sHMKitMoves[][3] = {
+    { MOVE_CUT, ITEM_HM01, 1 },         { MOVE_FLY, ITEM_HM02, 4 },        { MOVE_SURF, ITEM_HM03, 3 },
+    { MOVE_STRENGTH, ITEM_HM04, 2 },    { MOVE_WHIRLPOOL, ITEM_HM05, 6 },  { MOVE_ROCK_SMASH, ITEM_HM06, 0 },
+    { MOVE_WATERFALL, ITEM_HM07, 7 },   { MOVE_ROCK_CLIMB, ITEM_HM08, 15 },
+};
+
+BOOL RH_HMKitCovers(u32 move)
+{
+    void *save = SaveBlock2_get();
+    void *bag = Sav2_Bag_get(save);
+    if (!Bag_HasItem(bag, ITEM_HM_KIT, 1, 11))
+        return FALSE;
+    for (u32 i = 0; i < NELEMS(sHMKitMoves); i++)
+        if (sHMKitMoves[i][0] == move)
+            return Bag_HasItem(bag, sHMKitMoves[i][1], 1, 11)
+                && PlayerProfile_TestBadgeFlag(Sav2_PlayerData_GetProfileAddr(save), sHMKitMoves[i][2]);
+    return FALSE;
+}
+
+// GetIdxOfFirstPartyMonWithMove (arm9 0x020542E8): the first Pokemon (not an Egg) that knows the move, else with
+// the HM Kit the first Pokemon that isn't an Egg; 0xFF = none
+u8 LONG_CALL RH_GetIdxOfFirstPartyMonWithMove(void *party, u16 move)
+{
+    int count = Party_GetCount(party);
+    u8 first = 0xFF;
+    for (int i = 0; i < count; i++)
+    {
+        struct PartyPokemon *mon = Party_GetMonByIndex(party, i);
+        if (GetMonData(mon, MON_DATA_IS_EGG, NULL))
+            continue;
+        if (first == 0xFF)
+            first = i;
+        for (int m = 0; m < 4; m++)
+            if (GetMonData(mon, MON_DATA_MOVE1 + m, NULL) == move)
+                return i;
+    }
+    if (first != 0xFF && RH_HMKitCovers(move))
+        return first;
+    return 0xFF;
+}
+
+void ItemMenuUseFunc_HMKit(struct ItemMenuUseData *data, const struct ItemCheckUseData *dat2 UNUSED)
+{
+    FieldSystem *fieldSystem = data->taskManager->fieldSystem;
+    struct RhFieldMoveCheckData check;
+    u8 slot = RH_GetIdxOfFirstPartyMonWithMove(SaveArray_Party_Get(fieldSystem->savedata), MOVE_FLY);
+    FieldMove_InitCheckData(fieldSystem, &check);
+    if (slot != 0xFF && RH_HMKitCovers(MOVE_FLY) && FieldMove_CheckFly(&check) == 0)
+    {
+        struct RhFieldMoveUseData use = { data->taskManager, slot, 1 };
+        FieldMove_UseFly(&use, &check);         // the Fly map, as from the party menu
+        return;
+    }
+    RunItemScriptFromBag(data, RH_SCRIPT_HM_KIT_INFO);
+}
+
+BOOL ItemFieldUseFunc_HMKit(struct ItemFieldUseData *data)
+{
+    EventSet_Script(data->fieldSystem, RH_SCRIPT_HM_KIT_INFO, NULL);
     return FALSE;
 }

@@ -2686,3 +2686,4 @@ Canari Bread
 Rando Settings
 Infinite Candy
 Healing Kit
+HM Kit

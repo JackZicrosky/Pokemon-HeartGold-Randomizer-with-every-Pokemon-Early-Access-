@@ -273,6 +273,7 @@ scrdef RhShop_Training
 scrdef RhShop_Berries
 scrdef RhShop_Snacks
 scrdef RhHealingKit
+scrdef RhHMKitInfo
 scrdef_end
 
 scr_seq_0141_000:
@@ -2162,6 +2163,13 @@ RhHealingKit:
     wait_fanfare
     npc_msg 19
     wait_button
+    closemsg
+    releaseall
+    end
+
+RhHMKitInfo:
+    lockall
+    npc_msg 20
     closemsg
     releaseall
     end
