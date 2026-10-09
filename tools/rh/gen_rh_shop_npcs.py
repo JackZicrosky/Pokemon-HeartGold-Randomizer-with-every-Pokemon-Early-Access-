@@ -30,8 +30,9 @@ ORDER = list(SELLERS)
 MARTS = [68, 79, 157, 165, 227, 292, 360, 409, 426, 433, 474, 478, 500, 530]
 # (map, seller, x, z): facing down, with a free tile below
 PLACEMENTS = [(m, 'Evo', 12, 4) for m in MARTS] + [
-    (192, 'Evo', 6, 3), (192, 'Competitive', 2, 3),      # Goldenrod Dept. Store 2F .. 6F
-    (193, 'Forms', 10, 3), (194, 'Mega', 10, 3), (195, 'Training', 10, 3),
+    (192, 'Competitive', 2, 3),                          # Goldenrod Dept. Store 2F .. 6F
+    (192, 'Evo', 14, 10), (192, 'Mega', 16, 10),         # 2F's open floor (owner: a free, accessible space)
+    (193, 'Forms', 10, 3), (195, 'Training', 10, 3),
     (196, 'Berries', 3, 3), (196, 'Snacks', 6, 3),
     (371, 'Evo', 8, 3), (371, 'Competitive', 3, 3),      # Celadon Dept. Store 2F .. roof
     (372, 'Forms', 3, 3), (373, 'Mega', 3, 3), (374, 'Training', 3, 3),
