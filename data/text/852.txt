@@ -6,30 +6,30 @@
 {COLOR 255}copies of the Scarlet Book{COLOR 0}
 {COLOR 255}copies of the Violet Book{COLOR 0}
 {COLOR 255}Kofu’s Wallets{COLOR 0}
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}Tiny Bamboo Shoots{COLOR 0}
 {COLOR 255}Big Bamboo Shoots{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}Scrolls of Darkness{COLOR 0}
 {COLOR 255}Scrolls of Waters{COLOR 0}
-
-
+ 
+ 
 {COLOR 255}sets of Malicious Armor{COLOR 0}
 {COLOR 255}Normal Tera Shards{COLOR 0}
 {COLOR 255}Fire Tera Shards{COLOR 0}
@@ -56,7 +56,7 @@
 {COLOR 255}Punching Gloves{COLOR 0}
 {COLOR 255}Covert Cloaks{COLOR 0}
 {COLOR 255}Loaded Dice{COLOR 0}
-
+ 
 {COLOR 255}Baguettes{COLOR 0}
 {COLOR 255}bottles of Mayonnaise{COLOR 0}
 {COLOR 255}bottles of Ketchup{COLOR 0}
@@ -116,15 +116,15 @@
 {COLOR 255}tubs of Wasabi{COLOR 0}
 {COLOR 255}bunches of Watercress{COLOR 0}
 {COLOR 255}bunches of Basil{COLOR 0}
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}Venonat Fangs{COLOR 0}
 {COLOR 255}bags of Diglett Dirt{COLOR 0}
 {COLOR 255}bags of Meowth Fur{COLOR 0}
@@ -269,9 +269,9 @@
 {COLOR 255}Stonjourner Stones{COLOR 0}
 {COLOR 255}bags of Eiscue Down{COLOR 0}
 {COLOR 255}bags of Dreepy Powder{COLOR 0}
-
-
-
+ 
+ 
+ 
 {COLOR 255}bags of Lechonk Hair{COLOR 0}
 {COLOR 255}bags of Tarountula Thread{COLOR 0}
 {COLOR 255}Nymble Claws{COLOR 0}
@@ -293,8 +293,8 @@
 {COLOR 255}bags of Tatsugiri Scales{COLOR 0}
 {COLOR 255}bags of Cyclizar Scales{COLOR 0}
 {COLOR 255}bags of Pawmi Fur{COLOR 0}
-
-
+ 
+ 
 {COLOR 255}Wattrel Feathers{COLOR 0}
 {COLOR 255}Bombirdier Feathers{COLOR 0}
 {COLOR 255}Squawkabilly Feathers{COLOR 0}
@@ -307,24 +307,24 @@
 {COLOR 255}Maschiff Fangs{COLOR 0}
 {COLOR 255}Bramblin Twigs{COLOR 0}
 {COLOR 255}Gimmighoul Coins{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}bags of Tinkatink Hair{COLOR 0}
 {COLOR 255}bags of Charcadet Soot{COLOR 0}
 {COLOR 255}Toedscool Flaps{COLOR 0}
@@ -459,29 +459,29 @@
 {COLOR 255}TM227s{COLOR 0}
 {COLOR 255}TM228s{COLOR 0}
 {COLOR 255}TM229s{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}Picnic Sets{COLOR 0}
-
+ 
 {COLOR 255}Academy Bottles{COLOR 0}
 {COLOR 255}Academy Bottles{COLOR 0}
 {COLOR 255}Polka-Dot Bottles{COLOR 0}
@@ -497,7 +497,7 @@
 {COLOR 255}Whimsical Tablecloths{COLOR 0}
 {COLOR 255}Leafy Tablecloths{COLOR 0}
 {COLOR 255}Spooky Tablecloths{COLOR 0}
-
+ 
 {COLOR 255}Academy Balls{COLOR 0}
 {COLOR 255}Academy Balls{COLOR 0}
 {COLOR 255}Marill Balls{COLOR 0}
@@ -512,11 +512,11 @@
 {COLOR 255}Vee-Vee Picks{COLOR 0}
 {COLOR 255}Smiling Vee Picks{COLOR 0}
 {COLOR 255}Blue Poké Ball Picks{COLOR 0}
-
+ 
 {COLOR 255}sets of Auspicious Armor{COLOR 0}
 {COLOR 255}Leader’s Crests{COLOR 0}
-
-
+ 
+ 
 {COLOR 255}Pink Bottles{COLOR 0}
 {COLOR 255}Blue Bottles{COLOR 0}
 {COLOR 255}Yellow Bottles{COLOR 0}

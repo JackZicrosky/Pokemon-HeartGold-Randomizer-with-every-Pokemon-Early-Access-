@@ -747,9 +747,9 @@ a {COLOR 255}Genome Slate{COLOR 0}
 a {COLOR 255}Discovery Slate{COLOR 0}
 a {COLOR 255}Distortion Slate{COLOR 0}
 the {COLOR 255}DS Sounds{COLOR 0}
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Legend Plate{COLOR 0}

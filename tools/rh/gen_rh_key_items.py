@@ -56,6 +56,10 @@ def main():
     # (msgenc drops empty entries, which shifted every later item's name: unnamed ids get a space)
     names = [n if n != '' else ' ' for n in names[:ITEM_ID]] + [NAME]
     write('data/text/222.txt', names)
+    # the per-generation item text banks with unused (empty) entries: same msgenc problem as the names
+    for bank in (847, 848, 849, 851, 852, 853):
+        path = 'data/text/%03d.txt' % bank
+        write(path, [t if t != '' else ' ' for t in lines(path)])
     # custom item texts: index 0
     for bank, text in ((221, DESCRIPTION), (223, ARTICLE), (224, PLURAL), (829, ARTICLE)):
         write('data/text/%03d.txt' % bank, [text])

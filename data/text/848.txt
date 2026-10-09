@@ -747,9 +747,9 @@
 {COLOR 255}Discovery Slates{COLOR 0}
 {COLOR 255}Distortion Slates{COLOR 0}
 {COLOR 255}DS Sounds{COLOR 0}
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 {COLOR 255}Legend Plates{COLOR 0}

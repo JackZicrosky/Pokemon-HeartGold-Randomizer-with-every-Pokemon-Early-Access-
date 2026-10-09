@@ -6,30 +6,30 @@ a {COLOR 255}Tera Orb{COLOR 0}
 a {COLOR 255}Scarlet Book{COLOR 0}
 a {COLOR 255}Violet Book{COLOR 0}
 a {COLOR 255}Kofu’s Wallet{COLOR 0}
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Tiny Bamboo Shoot{COLOR 0}
 a {COLOR 255}Big Bamboo Shoot{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Scroll of Darkness{COLOR 0}
 the {COLOR 255}Scroll of Waters{COLOR 0}
-
-
+ 
+ 
 a {COLOR 255}Malicious Armor{COLOR 0}
 a {COLOR 255}Normal Tera Shard{COLOR 0}
 a {COLOR 255}Fire Tera Shard{COLOR 0}
@@ -56,7 +56,7 @@ a {COLOR 255}Mirror Herb{COLOR 0}
 a {COLOR 255}Punching Glove{COLOR 0}
 a {COLOR 255}Covert Cloak{COLOR 0}
 a {COLOR 255}Loaded Dice{COLOR 0}
-
+ 
 a {COLOR 255}Baguette{COLOR 0}
 a {COLOR 255}Mayonnaise{COLOR 0}
 a {COLOR 255}Ketchup{COLOR 0}
@@ -116,15 +116,15 @@ a {COLOR 255}Curry Powder{COLOR 0}
 a {COLOR 255}Wasabi{COLOR 0}
 a {COLOR 255}Watercress{COLOR 0}
 a {COLOR 255}Basil{COLOR 0}
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Venonat Fang{COLOR 0}
 a {COLOR 255}Diglett Dirt{COLOR 0}
 a {COLOR 255}Meowth Fur{COLOR 0}
@@ -269,9 +269,9 @@ a {COLOR 255}Hatenna Dust{COLOR 0}
 a {COLOR 255}Stonjourner Stone{COLOR 0}
 an {COLOR 255}Eiscue Down{COLOR 0}
 a {COLOR 255}Dreepy Powder{COLOR 0}
-
-
-
+ 
+ 
+ 
 a {COLOR 255}Lechonk Hair{COLOR 0}
 a {COLOR 255}Tarountula Thread{COLOR 0}
 a {COLOR 255}Nymble Claw{COLOR 0}
@@ -293,8 +293,8 @@ the {COLOR 255}Frigibax Scales{COLOR 0}
 the {COLOR 255}Tatsugiri Scales{COLOR 0}
 the {COLOR 255}Cyclizar Scales{COLOR 0}
 a {COLOR 255}Pawmi Fur{COLOR 0}
-
-
+ 
+ 
 a {COLOR 255}Wattrel Feather{COLOR 0}
 a {COLOR 255}Bombirdier Feather{COLOR 0}
 a {COLOR 255}Squawkabilly Feather{COLOR 0}
@@ -307,24 +307,24 @@ a {COLOR 255}Fidough Fur{COLOR 0}
 a {COLOR 255}Maschiff Fang{COLOR 0}
 a {COLOR 255}Bramblin Twig{COLOR 0}
 a {COLOR 255}Gimmighoul Coin{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Tinkatink Hair{COLOR 0}
 a {COLOR 255}Charcadet Soot{COLOR 0}
 the {COLOR 255}Toedscool Flaps{COLOR 0}
@@ -459,29 +459,29 @@ a {COLOR 255}TM226{COLOR 0}
 a {COLOR 255}TM227{COLOR 0}
 a {COLOR 255}TM228{COLOR 0}
 a {COLOR 255}TM229{COLOR 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 a {COLOR 255}Picnic Set{COLOR 0}
-
+ 
 an {COLOR 255}Academy Bottle{COLOR 0}
 an {COLOR 255}Academy Bottle{COLOR 0}
 a {COLOR 255}Polka-Dot Bottle{COLOR 0}
@@ -497,7 +497,7 @@ an {COLOR 255}Academy Tablecloth{COLOR 0}
 a {COLOR 255}Whimsical Tablecloth{COLOR 0}
 a {COLOR 255}Leafy Tablecloth{COLOR 0}
 a {COLOR 255}Spooky Tablecloth{COLOR 0}
-
+ 
 an {COLOR 255}Academy Ball{COLOR 0}
 an {COLOR 255}Academy Ball{COLOR 0}
 a {COLOR 255}Marill Ball{COLOR 0}
@@ -512,11 +512,11 @@ a {COLOR 255}Winking Pika Pick{COLOR 0}
 a {COLOR 255}Vee-Vee Pick{COLOR 0}
 a {COLOR 255}Smiling Vee Pick{COLOR 0}
 a {COLOR 255}Blue Poké Ball Pick{COLOR 0}
-
+ 
 an {COLOR 255}Auspicious Armor{COLOR 0}
 a {COLOR 255}Leader’s Crest{COLOR 0}
-
-
+ 
+ 
 a {COLOR 255}Pink Bottle{COLOR 0}
 a {COLOR 255}Blue Bottle{COLOR 0}
 a {COLOR 255}Yellow Bottle{COLOR 0}
