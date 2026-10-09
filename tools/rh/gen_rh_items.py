@@ -8,6 +8,11 @@
 #                           randomizer call (nop_var_490 = the romhack's script command, RH_SPECIAL_ITEM_BALL)
 # Usage: python3 tools/rh/gen_rh_items.py   (from the repository root)
 import re
+import sys
+
+sys.path.insert(0, 'tools/rh')
+import gen_rh_shop_npcs  # noqa: E402
+from gen_rh_trade_scripts import text_bank  # noqa: E402
 
 POOL_POCKETS = {'POCKET_ITEMS', 'POCKET_MEDICINE', 'POCKET_BALLS', 'POCKET_BERRIES', 'POCKET_BATTLE_ITEMS', 'POCKET_MAIL'}
 # never random items: event / unobtainable Balls, Z-Crystals, quest items, relics and shards (FVX bad items)
@@ -60,6 +65,8 @@ def main():
         hold = re.search(r'\.holdEffect = (\w+)', body)
         hold = hold.group(1) if hold else '0'
         shop_only = name in SHOP_ONLY
+        if '// RH price' in body:
+            continue                                 # priced for the special shops only (gen_rh_special_shops.py)
         if pocket not in POOL_POCKETS or (price == 0 and not shop_only) or (name in BANNED and not shop_only):
             continue
         if name.endswith('_Z') or '_Z_' in name or name.endswith('_ORAS') or name.startswith('DUMMY'):
@@ -123,6 +130,10 @@ def main():
     for n, item, q in balls:
         s.append('scrdef scr_seq_0141_%s' % n)
     s.append('scrdef ItemBallCommon')                    # entry 255, as in pret
+    # the romhack's shop NPCs (tools/rh/gen_rh_shop_npcs.py): entries 256..
+    assert len(balls) + 1 == gen_rh_shop_npcs.FIRST_INDEX
+    shop_defs, shop_body = gen_rh_shop_npcs.scripts(len(text_bank(gen_rh_shop_npcs.BANK)))
+    s += shop_defs
     s.append('scrdef_end')
     s.append('')
     for n, item, q in balls:
@@ -132,6 +143,7 @@ def main():
               '    setvar VAR_SPECIAL_x800A, %d' % int(n),
               '    goto ItemBallCommon',
               '    end', '']
+    s += shop_body
     s.append(ITEM_BALL_COMMON)
     open('data/scr_seq/scr_seq_00141_itemballs.s', 'w', newline='\n').write('\n'.join(s) + '\n')
     print('pool', len(pool), 'field', len(field), 'balls', len(balls))

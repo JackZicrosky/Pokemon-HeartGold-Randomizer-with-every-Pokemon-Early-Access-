@@ -1,0 +1,17 @@
+{STRVAR_1 3, 0, 0} obtained\nthe {STRVAR_1 8, 1, 0}!
+The Bag is full...
+{STRVAR_1 3, 0, 0} put the {STRVAR_1 8, 1, 0}\nin the {STRVAR_1 8, 2, 0} Pocket.
+{STRVAR_1 3, 0, 0} found\n{STRVAR_1 8, 1, 0}!
+Obtained the {STRVAR_1 8, 0, 0}!\rToo bad!\nThe Bag is full...
+{STRVAR_1 3, 0, 0} put the {STRVAR_1 8, 1, 0}\nin the Bag.
+{STRVAR_1 3, 0, 0} found\n{STRVAR_1 8, 1, 0} {STRVAR_1 6, 2, 0}!
+{STRVAR_1 3, 0, 0} obtained\nthe {COLOR 2}{STRVAR_1 8, 1, 0}{COLOR 0}!
+{STRVAR_1 3, 0, 0} obtained\nthe {COLOR 1}{STRVAR_1 8, 1, 0}{COLOR 0}!
+{STRVAR_1 3, 0, 0} put the {STRVAR_1 8, 1, 0}\nin the {COLOR 2}{STRVAR_1 31, 2, 0}{COLOR 0} Pocket.
+I deal in items that make Pokémon\nevolve. Stones, cords, sweets...\rWhatever your Pokémon needs!\r
+Welcome to the Battle Gear counter.\nOnly the finest held items here.\r
+This counter carries rare artifacts\nthat change a Pokémon’s form.\r
+Mega Stones from every region!\nYou’ll need a Mega Ring to use them.\r
+Serious Trainers shop here.\nWe help Pokémon reach full potential.\r
+Berries from all over the world!\nFresh picked, every one.\r
+Famous treats from every region!\nPokémon love them.\r

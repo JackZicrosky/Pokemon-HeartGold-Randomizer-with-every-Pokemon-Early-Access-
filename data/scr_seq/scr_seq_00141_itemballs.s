@@ -264,6 +264,13 @@ scrdef scr_seq_0141_252
 scrdef scr_seq_0141_253
 scrdef scr_seq_0141_254
 scrdef ItemBallCommon
+scrdef RhShop_Evo
+scrdef RhShop_Competitive
+scrdef RhShop_Forms
+scrdef RhShop_Mega
+scrdef RhShop_Training
+scrdef RhShop_Berries
+scrdef RhShop_Snacks
 scrdef_end
 
 scr_seq_0141_000:
@@ -2049,6 +2056,76 @@ scr_seq_0141_254:
     setvar VAR_SPECIAL_x8009, 1
     setvar VAR_SPECIAL_x800A, 254
     goto ItemBallCommon
+    end
+
+RhShop_Evo:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 10
+    closemsg
+    special_mart_buy 30
+    releaseall
+    end
+
+RhShop_Competitive:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 11
+    closemsg
+    special_mart_buy 32
+    releaseall
+    end
+
+RhShop_Forms:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 12
+    closemsg
+    special_mart_buy 33
+    releaseall
+    end
+
+RhShop_Mega:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 13
+    closemsg
+    special_mart_buy 34
+    releaseall
+    end
+
+RhShop_Training:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 14
+    closemsg
+    special_mart_buy 35
+    releaseall
+    end
+
+RhShop_Berries:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 15
+    closemsg
+    special_mart_buy 36
+    releaseall
+    end
+
+RhShop_Snacks:
+    play_se SEQ_SE_DP_SELECT
+    lockall
+    faceplayer
+    npc_msg 16
+    closemsg
+    special_mart_buy 37
+    releaseall
     end
 
 ItemBallCommon:

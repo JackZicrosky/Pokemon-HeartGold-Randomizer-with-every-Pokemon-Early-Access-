@@ -2,12 +2,49 @@
 # Romhack: the special shops' stock (evolution specialist, herb shop, Dept. Store counters, Kurt's Poke Balls),
 # taken from the Emerald romhack's lists (tools/rh/ref/rh_shops_emerald.inc, written by its tools/rh/gen_shops.py).
 # Z-Crystals are left out (no Z-Moves). Writes data/rh/RhSpecialShops.c (a028 member 27, layout in rh_data.h).
+# Special shop items without a price get the Emerald romhack's (its shop_design.py PRICE_OVERRIDES; Mega Stones
+# 10000), written into data/itemdata/itemdata.c marked "// RH price" (gen_rh_items.py keeps those out of the pools).
 # Usage: python3 tools/rh/gen_rh_special_shops.py   (from the repository root)
 import re
 
 LISTS = ['Evo', 'Herb', 'Competitive', 'Forms', 'Mega', 'Training', 'Berries', 'Snacks', 'Balls']   # RH_SPECIAL_* order
 RENAME = {'UPGRADE': 'UP_GRADE', 'DNA_SPLICERS': 'DNA_SPLICERS_FUSE', 'N_SOLARIZER': 'N_SOLARIZER_FUSE',
           'N_LUNARIZER': 'N_LUNARIZER_FUSE', 'REINS_OF_UNITY': 'REINS_OF_UNITY_FUSE'}
+PRICE_OVERRIDES = {
+    'SCROLL_OF_DARKNESS': 20000, 'SCROLL_OF_WATERS': 20000, 'GIMMIGHOUL_COIN': 20,
+    'GRACIDEA': 5000, 'REVEAL_GLASS': 10000, 'DNA_SPLICERS_FUSE': 10000, 'PRISON_BOTTLE': 10000,
+    'N_SOLARIZER_FUSE': 10000, 'N_LUNARIZER_FUSE': 10000, 'REINS_OF_UNITY_FUSE': 10000, 'ROTOM_CATALOG': 5000,
+    'ZYGARDE_CUBE': 10000, 'RED_ORB': 20000, 'BLUE_ORB': 20000, 'ADAMANT_ORB': 10000,
+    'LUSTROUS_ORB': 10000, 'GRISEOUS_ORB': 10000, 'ADAMANT_CRYSTAL': 20000, 'LUSTROUS_GLOBE': 20000,
+    'GRISEOUS_CORE': 20000, 'RUSTED_SWORD': 20000, 'RUSTED_SHIELD': 20000, 'CORNERSTONE_MASK': 20000,
+    'WELLSPRING_MASK': 20000, 'HEARTHFLAME_MASK': 20000, 'DOUSE_DRIVE': 1000, 'SHOCK_DRIVE': 1000,
+    'BURN_DRIVE': 1000, 'CHILL_DRIVE': 1000, 'SOUL_DEW': 20000, 'BOOSTER_ENERGY': 30000,
+    'LUCKY_EGG': 30000, 'EVERSTONE': 3000, 'LEADERS_CREST': 3000,
+    # the expansion's own prices (no price in hg-engine)
+    'REMEDY': 150, 'FINE_REMEDY': 150, 'SUPERB_REMEDY': 750, 'JUBILIFE_MUFFIN': 250, 'MAX_HONEY': 8000,
+    'RAGE_CANDY_BAR': 350,
+}
+MEGA_PRICE = 10000
+SHOP_ONLY_BALLS = {'MASTER_BALL', 'CHERISH_BALL', 'BEAST_BALL', 'DREAM_BALL', 'PARK_BALL', 'SPORT_BALL',
+                   'STRANGE_BALL', 'SAFARI_BALL'}         # priced in src/rh/rh_shops.c
+
+
+def set_prices(items, mega):
+    path = 'data/itemdata/itemdata.c'
+    src = open(path, encoding='utf-8').read()
+    missing = []
+    for it in sorted(set(items) - SHOP_ONLY_BALLS):
+        m = re.search(r'(\[ITEM_%s\] =\s*\{\s*ITEM_PRICE\()(\d+)(\),)( // RH price)?' % it, src)
+        if m is None or (m.group(2) != '0' and not m.group(4)):
+            continue
+        price = PRICE_OVERRIDES.get(it, MEGA_PRICE if it in mega else None)
+        if price is None:
+            missing.append(it)
+            continue
+        src = src[:m.start()] + m.group(1) + str(price) + m.group(3) + ' // RH price' + src[m.end():]
+    open(path, 'w', encoding='utf-8', newline='\n').write(src)
+    if missing:
+        print('no price for', ' '.join(missing))
 
 
 def main():
@@ -36,6 +73,7 @@ def main():
            'const struct { u16 count, pad; u16 data[%d]; } sRhSpecialShopFile = { %d, 0, {' % (total, total),
            '    ' + ', '.join(str(s) for s in starts) + ','] + body + ['} };']
     open('data/rh/RhSpecialShops.c', 'w', newline='\n').write('\n'.join(out) + '\n')
+    set_prices(items, set(RENAME.get(i, i) for i in lists['Mega']))
     print('special shops:', len(items), 'items')
 
 

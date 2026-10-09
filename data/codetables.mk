@@ -304,3 +304,14 @@ $(RH_SPECIAL_SHOPS_BIN): data/rh/RhSpecialShops.c include/rh/rh_data.h
 	$(OBJCOPY) -O binary build/rh/RhSpecialShops.o $@
 
 NARC_FILES += $(RH_SPECIAL_SHOPS_BIN)
+
+# romhack: the shop NPCs added to the maps' events (tools/rh/gen_rh_shop_npcs.py), from the clean ROM's a/0/3/2
+RH_ZONE_EVENT_TARGET := $(FILESYS)/a/0/3/2
+RH_ZONE_EVENT_NARC := build/rh/zone_event.narc
+
+$(RH_ZONE_EVENT_NARC): tools/rh/zone_events.py tools/rh/gen_rh_shop_npcs.py
+	mkdir -p build/rh
+	$(PYTHON) tools/rh/nds_extract.py rom.nds a/0/3/2 build/rh/a032_clean
+	$(PYTHON) tools/rh/zone_events.py --patch $(BASE)/arm9.bin build/rh/a032_clean $@
+
+NARC_FILES += $(RH_ZONE_EVENT_NARC)
