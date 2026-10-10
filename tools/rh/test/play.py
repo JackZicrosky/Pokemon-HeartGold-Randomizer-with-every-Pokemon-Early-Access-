@@ -168,7 +168,8 @@ def find_all_rh_settings(m):
     key = RH_MAGIC.to_bytes(4, 'little')
     out, i = [], ram.find(key)
     while i >= 0:
-        if i % 4 == 0:
+        # a real copy: enabled is 0/1 and Battle Mechanics a generation (not code that happens to hold the magic)
+        if i % 4 == 0 and ram[i + 30] in (0, 1) and 1 <= ram[i + 31] <= 9:
             out.append(0x02000000 + i)
         i = ram.find(key, i + 1)
     return out

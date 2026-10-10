@@ -425,3 +425,62 @@ BOOL ScrCmd_GetPartySlotWithMove(SCRIPTCONTEXT *ctx)
     *slot = (i == 0xFF) ? 6 : i;
     return FALSE;
 }
+
+// ---------------------------------------------------------------------------
+// Misc. Tweaks "No Random Phone Calls": pret ov02_02251F20 (overlay 2, run as the player walks), hooked. The same
+// code, except that with the tweak on the random Trainer / friend call is never rolled; the story calls (the call
+// triggers, e.g. Professor Elm's) still ring. Offsets: pret GearPhoneRingManager.
+// ---------------------------------------------------------------------------
+#define GP_FLAGS(gp)       (*(u8 *)((u8 *)(gp) + 0x00))     // bit 0: active
+#define GP_STEPS(gp)       (*(s32 *)((u8 *)(gp) + 0x08))
+#define GP_MIN_STEPS(gp)   (*(s32 *)((u8 *)(gp) + 0x0C))
+#define GP_CHANCE(gp)      (*(u16 *)((u8 *)(gp) + 0x12))
+#define GP_SAVE(gp)        (*(void **)((u8 *)(gp) + 0x38))
+#define GP_FIELDSYS(gp)    (*(u8 **)((u8 *)(gp) + 0x3C))
+
+void *LONG_CALL Save_LocalFieldData_Get(void *saveData);                     // 0x0203B9C4
+u32 *LONG_CALL LocalFieldData_GetCurrentPosition(void *localFieldData);      // 0x0203B958
+BOOL LONG_CALL MapHeader_CanReceivePhoneCalls(u32 mapId);                    // 0x0203B4A8
+void *LONG_CALL AllocAndReadPhoneBook(u32 heapId);                           // 0x02095EF8
+void LONG_CALL FreePhoneBook(void *phoneBook);                               // 0x02095F68
+u32 LONG_CALL MTRandom(void);                                                // 0x0201FDB8
+#define GearPhone_CheckCallTriggers ((u32 (*)(void *, void *, u32))0x022521C1)    // pret ov02_022521C0
+#define GearPhone_PickRandomCaller  ((u32 (*)(void *, void *, u32))0x02251FDD)    // pret ov02_02251FDC
+#define GearPhone_ToggleRinging     ((void (*)(void *, BOOL))0x022522AD)          // pret ov02_022522AC
+
+BOOL RH_GearPhoneCheckCall(void *gp)
+{
+    u32 mapId = *LocalFieldData_GetCurrentPosition(Save_LocalFieldData_Get(GP_SAVE(gp)));
+    void *phoneBook;
+    u32 ret;
+    struct RhSettings *s = RH_Settings();
+    if (!MapHeader_CanReceivePhoneCalls(mapId))
+        return FALSE;
+    if ((GP_FLAGS(gp) & 1) || GP_STEPS(gp) < GP_MIN_STEPS(gp))
+        return FALSE;
+    phoneBook = AllocAndReadPhoneBook(4);
+    ret = GearPhone_CheckCallTriggers(gp, phoneBook, mapId);
+    if (ret)
+    {
+        FreePhoneBook(phoneBook);
+        if (ret == 2)
+        {
+            GP_FIELDSYS(gp)[0xD2] |= 0x80;
+            EventSet_Script((FieldSystem *)GP_FIELDSYS(gp), 0x7FF, NULL);
+            return TRUE;
+        }
+        GearPhone_ToggleRinging(gp, TRUE);
+        return FALSE;
+    }
+    if ((s->magic == RH_SETTINGS_MAGIC && s->noRandomCalls) || MTRandom() % 100 > GP_CHANCE(gp))
+    {
+        FreePhoneBook(phoneBook);                                    // romhack: no random call
+        GP_STEPS(gp) = 0;
+        return FALSE;
+    }
+    ret = GearPhone_PickRandomCaller(gp, phoneBook, mapId);
+    FreePhoneBook(phoneBook);
+    if (ret == 0)
+        GP_STEPS(gp) = 0;
+    return FALSE;
+}

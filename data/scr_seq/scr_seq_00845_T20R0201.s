@@ -56,6 +56,13 @@ scr_seq_T20R0201_000:
 	WaitMovement
 	CallStd std_fade_end_mom_music
 	SetVar VAR_SCENE_PLAYERS_HOUSE_1F, 1
+	@ romhack: no Guide Gent tour / Map Card scene, the Apricorn Box from the start (owner's defaults)
+	SetVar VAR_SCENE_CHERRYGROVE_CITY_OW, 2
+	SetFlag FLAG_HIDE_CHERRYGROVE_GUIDE_GENT
+	SetVar VAR_SCENE_ROUTE_30_OW, 1
+	SetFlag FLAG_HIDE_ROUTE_30_APRICORN_MAN
+	SetFlag FLAG_GOT_APRICORN_BOX
+	GiveItem ITEM_APRICORN_BOX, 1, VAR_SPECIAL_RESULT
 	ReleaseAll
 	End
 
@@ -130,6 +137,8 @@ _0179:
 	BufferPlayersName 0
 	NPCMsg 8
 	SetFlag FLAG_GOT_POKEGEAR
+	RegisterPokegearCard 1
+	GiveRunningShoes
 	PlayFanfare SEQ_ME_ITEM
 	WaitFanfare
 	NPCMsg 9
@@ -139,14 +148,14 @@ _0179:
 	TouchscreenMenuShow
 	Compare VAR_SPECIAL_RESULT, 0
 	GoToIfNe _01C6
-	NPCMsg 11
-	GoTo _01C9
+	GoTo _rh_ring
 
 _01C6:
 	NPCMsg 12
 _01C9:
 	NPCMsg 13
 	WaitButton
+_rh_ring:
 	@ romhack: the Mega Ring
 	NPCMsg 39
 	GiveItemNoCheck ITEM_MEGA_RING, 1

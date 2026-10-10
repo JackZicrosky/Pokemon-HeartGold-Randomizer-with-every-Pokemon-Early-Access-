@@ -369,11 +369,15 @@ LIST(sPlayerGraphics, "Default");
 static struct RhSettings sPending;   // the settings being edited
 #define S (&sPending)
 
-static u8 sInGame;                  // opened from the Randomizer Settings key item during a run
+static u8 sInGame;
+static BOOL SaveExists(void)
+{
+    return ((SaveData *)SaveBlock2_get())->saveFileExists;
+}                  // opened from the Randomizer Settings key item during a run
 
 #define VIS(name, expr) static BOOL name(const struct RhSettings *s) { (void)s; return (expr); }
 VIS(visInGame, sInGame)
-VIS(visResetRun, sInGame)
+VIS(visResetRun, sInGame || SaveExists())
 VIS(visPlayerGraphics, s->playerGraphics != 0)
 VIS(visPalettes, s->paletteMode != 0)
 VIS(visStatsRandomized, s->baseStats != 0)
@@ -670,7 +674,7 @@ static const struct RhRow sRows[] =
     TOGGLE(SEC_MISC, 0, randomCatchTutorial, "Random Catching Tutorial", "Your friend catches a random Pokémon\nin the catching demonstration.", NULL),
     TOGGLE(SEC_MISC, 0, banLuckyEgg, "Ban Lucky Egg", "The Lucky Egg is never picked as a\nrandomized item.", NULL),
     TOGGLE(SEC_MISC, 0, balanceStaticLevels, "Balance Static Levels", "Revived fossils come back at level 30\ninstead of 20 (as in UPR FVX).", NULL),
-    TOGGLE(SEC_MISC, 0, runWithoutShoes, "Run Without Running Shoes", "Hold B to run from the very start.", NULL),
+    TOGGLE(SEC_MISC, 0, noRandomCalls, "No Random Phone Calls", "Only story calls ring your Pokégear.\nTrainers and friends never call.", NULL),
     TOGGLE(SEC_MISC, 0, reusableTMs, "Infinitely Reusable TMs", "TMs are never used up (they can still\nbe tossed, held and sold).", NULL),
     TOGGLE(SEC_MISC, 0, forgettableTMs, "Forgettable HMs", "HM moves can be forgotten like any\nother move. Careful not to softlock!", NULL),
     TOGGLE(SEC_MISC, 0, noEVs, "No EVs From Pokémon", "Defeated Pokémon give 0 EVs (vitamins\nand Power items still work).", NULL),
@@ -974,7 +978,7 @@ static void RandomSeedText(void)
 // ---------------------------------------------------------------------------
 // Settings codes (same format as FireRed/Emerald: rows bit-packed in sRows order, seed, extras, checksum)
 // ---------------------------------------------------------------------------
-#define CODE_VERSION      1
+#define CODE_VERSION      2         // 2: Misc. Tweaks "No Random Phone Calls" replaced "Run Without Running Shoes"
 #define CODE_MAX_BYTES    96
 #define CODE_MAX_CHARS    (CODE_MAX_BYTES * 8 / 5)
 #define CODE_CHECK_BITS   10
@@ -1272,6 +1276,100 @@ static void DrawHeader(void)
     if (14 + TextWidth(SectionName(sSection)) + 8 > 252 - TextWidth(hint))
         hint = sInGame ? "B Exit" : "SELECT Menu";
     TextRight(SCR_TOP, 252, 0, hint, C_DIM, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Presets: three settings codes in a spare flash sector (62: hg-engine's extra save chunks end at sector 58),
+// which erasing the save (Reset The Run, the game's own delete) leaves alone (src/save.c Save_DeleteAllData).
+// ---------------------------------------------------------------------------
+#define PRESET_COUNT  3
+#define PRESET_MAGIC  0x52485053   // "RHPS"
+#define PRESET_OFFSET (62 * 0x1000)
+struct RhPresetSector
+{
+    u32 magic;
+    u16 bits[PRESET_COUNT];        // 0 = empty slot
+    u16 pad;
+    u8 data[PRESET_COUNT][CODE_MAX_BYTES];
+};
+static struct RhPresetSector sPresets;
+
+s32 LONG_CALL FlashWriteChunk(u32 offset, void *data, u32 size);
+BOOL LONG_CALL FlashLoadChunk(u32 offset, void *data, u32 size);
+// one step of the game's soft reset (arm9 0x02000F40, pret DoSoftReset's loop): resets once the card is idle
+#define SoftResetStep ((void (*)(u32))(0x02000F40 | 1))
+
+static void ReadPresets(void)
+{
+    u32 i;
+    FlashLoadChunk(PRESET_OFFSET, &sPresets, sizeof(sPresets));
+    if (sPresets.magic != PRESET_MAGIC)
+    {
+        memset(&sPresets, 0, sizeof(sPresets));
+        sPresets.magic = PRESET_MAGIC;
+    }
+    sPresetUsed = 0;
+    for (i = 0; i < PRESET_COUNT; i++)
+        if (sPresets.bits[i] != 0)
+            sPresetUsed |= 1 << i;
+}
+
+static BOOL SavePreset(u32 slot)
+{
+    BOOL ok;
+    ReadPresets();
+    sPresets.bits[slot] = PackSettings(S, sPresets.data[slot]);
+    ok = FlashWriteChunk(PRESET_OFFSET, &sPresets, sizeof(sPresets)) != 0;
+    ReadPresets();
+    return ok && (sPresetUsed & (1 << slot));
+}
+
+static BOOL LoadPreset(u32 slot)
+{
+    ReadPresets();
+    return sPresets.bits[slot] != 0 && UnpackSettings(S, sPresets.data[slot], sPresets.bits[slot]);
+}
+
+static void DrawAll(void);
+static void FixCursor(s32 dir);
+static void GoToSection(u32 sec);
+
+static void EraseGameSave(void)
+{
+    // the game's own way to invalidate both save slots (Save_DeleteAllData: spoil each chunk's footer), then the
+    // extra data (Hall of Fame, battle videos...: sectors 47-61 and their copies) - not the presets' sector 62.
+    // (Save_DeleteAllData itself rewrites all 128 sectors, which takes long, from heap 3, full under this screen)
+    SaveData *save = SaveBlock2_get();
+    u8 *buf = sys_AllocMemory(HEAPID_RH_MENU, 0x1000);
+    u32 i;
+    FlashClobberChunkFooter(save, 0, save->lastGoodSector == 0 ? 1 : 0);
+    FlashClobberChunkFooter(save, 1, save->lastGoodSector == 0 ? 1 : 0);
+    FlashClobberChunkFooter(save, 0, save->lastGoodSector);
+    FlashClobberChunkFooter(save, 1, save->lastGoodSector);
+    memset(buf, 0xFF, 0x1000);
+    for (i = 47; i < PRESET_OFFSET / 0x1000; i++)
+    {
+        FlashWriteChunk(i * 0x1000, buf, 0x1000);
+        FlashWriteChunk((i + 64) * 0x1000, buf, 0x1000);
+    }
+    sys_FreeMemoryEz(buf);
+    save->saveFileExists = FALSE;
+}
+
+// Reset The Run (two confirmations): erase the saved game, not the presets. In-game the game then restarts (title
+// screen); at New Game the options screen stays, with a new seed.
+static void ResetTheRun(void)
+{
+    EraseGameSave();
+    if (sInGame)
+        for (;;)
+            SoftResetStep(0);             // as the game's own soft reset: once the cartridge is idle, restart
+    RandomSeedText();
+    PlaySE(SEQ_SE_DP_SAVE);
+    GoToSection(SEC_GENERAL);
+    FixCursor(1);
+    sMessage = "Your saved game was erased. Pick your\nsettings and begin a new run.";
+    DrawAll();
 }
 
 static const char *ActionValueText(u32 act)
@@ -1863,9 +1961,36 @@ static void DoAction(u32 act, BOOL confirmed)
         DrawBottom();
         return;
     case ACT_SAVE_1: case ACT_SAVE_2: case ACT_SAVE_3:
+        if (!confirmed && (sPresetUsed & (1 << (act - ACT_SAVE_1))))
+        {
+            sPendingAction = act;
+            sConfirm = 2;                 // default NO for overwriting
+            PlaySE(SEQ_SE_DP_SELECT);
+            DrawBottom();
+            return;
+        }
+        if (SavePreset(act - ACT_SAVE_1))
+        {
+            PlaySE(SEQ_SE_DP_SAVE);
+            sMessage = "Preset saved.";
+        }
+        else
+        {
+            PlaySE(SEQ_SE_DP_BEEP);
+            sMessage = "Couldn't save. Is your emulator's save\ntype set to 4 Mbit Flash?";
+        }
+        break;
     case ACT_LOAD_1: case ACT_LOAD_2: case ACT_LOAD_3:
-        PlaySE(SEQ_SE_DP_BEEP);
-        sMessage = "Presets aren't available in this test\nbuild yet.";
+        if (LoadPreset(act - ACT_LOAD_1))
+        {
+            PlaySE(SEQ_SE_DP_DECIDE);
+            sMessage = "Preset loaded.";
+        }
+        else
+        {
+            PlaySE(SEQ_SE_DP_BEEP);
+            sMessage = "This preset is empty.";
+        }
         break;
     case ACT_EXIT:
         sPendingAction = act;
@@ -1976,9 +2101,7 @@ static void HandleInput(void)
             if (sConfirm == 1 && sPendingAction == ACT_RESET_RUN_2)
             {
                 sConfirm = 0;
-                PlaySE(SEQ_SE_DP_BEEP);
-                sMessage = "Not available in this test build yet.";
-                DrawBottom();
+                ResetTheRun();
                 return;
             }
             if (sConfirm == 1)
@@ -2140,6 +2263,7 @@ static BOOL MenuExec(void *manager, int *state)
         }
         sExitTo = 0;
         sMenuOpen = sConfirm = sCodeMode = sEditing = FALSE;
+        ReadPresets();
         sMessage = NULL;
         GoToSection(SEC_GENERAL);
         SetupScreens();

@@ -202,6 +202,9 @@ BOOL Save_DeleteAllData(SaveData *saveData)
     FlashClobberChunkFooter(saveData, 1, saveData->lastGoodSector);
     MI_CpuFillFast(r6, -1, SAVE_SECTOR_SIZE);
     for (i = 0; i < 64; i++) {
+        if (i == 62) {
+            continue; // romhack: the randomizer presets' sector (src/rhmenu/rh_menu.c) survives erasing the save
+        }
         FlashWriteChunk(i * SAVE_SECTOR_SIZE, r6, SAVE_SECTOR_SIZE);
         FlashWriteChunk((i + 64) * SAVE_SECTOR_SIZE, r6, SAVE_SECTOR_SIZE);
     }

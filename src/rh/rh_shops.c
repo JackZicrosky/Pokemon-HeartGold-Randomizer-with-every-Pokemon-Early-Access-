@@ -1,4 +1,4 @@
-// Romhack: item prices (port of the FireRed/Emerald RH_GetItemPrice in rh_items.c). Every price the game reads
+// Romhack: item prices (port of the FireRed/Emerald RH_ItemPrice in rh_items.c). Every price the game reads
 // (GetItemData(item, ITEM_PARAM_PRICE), src/item.c) goes through RH_ItemPrice.
 #include "../../include/types.h"
 #include "../../include/constants/item.h"
@@ -23,7 +23,40 @@ static u32 ExtraBallPrice(u32 item)
     return 0;
 }
 
-u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla)
+// "Balance Shop Prices" curve (owner's spec): prices up to 1000 stay; above that, the more expensive an item, the
+// harder the cut (10000 -> ~6800, 20000 -> ~10500, 100000 -> ~22200, 250000 -> ~29500). sCurve[k] is the price
+// for 1000 << k (1000 * e^(x - 0.07 x^2), x = ln(price / 1000)); prices in between are interpolated.
+static const u16 sBalanceCurve[] = { 1000, 1933, 3497, 5911, 9346, 13806, 19069, 24632, 29730, 33580, 35450 };
+
+static u32 BalancePrice(u32 price)
 {
-    return vanilla != 0 ? vanilla : ExtraBallPrice(item);
+    u32 k, lo, out;
+    if (price <= 1000)
+        return price;
+    for (k = 0; k < NELEMS(sBalanceCurve) - 1; k++)
+    {
+        lo = 1000u << k;
+        if (price < (lo << 1))
+        {
+            out = sBalanceCurve[k] + (sBalanceCurve[k + 1] - sBalanceCurve[k]) * (price - lo) / lo;
+            return (out + 5) / 10 * 10;
+        }
+    }
+    return sBalanceCurve[NELEMS(sBalanceCurve) - 1];
+}
+
+// vanilla: the item data's price; balanced: UPR FVX's balanced price for the item (0 = none; src/item.c)
+u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla, u32 balanced)
+{
+    u32 price = vanilla != 0 ? vanilla : ExtraBallPrice(item);
+    if (!RH_Active() || price == 0)
+        return price;
+    if (S->shopAddCheapRareCandy && item == ITEM_RARE_CANDY)
+        return 10;                                           // FVX "Add Cheap Rare Candies"
+    if (!S->shopBalancePrices)
+        return price;
+    // FVX's balanced price table first (not for the balls only the romhack sells: FVX lists the Master Ball at 3000)
+    if (vanilla != 0 && balanced != 0)
+        price = balanced;
+    return BalancePrice(price);
 }

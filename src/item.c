@@ -574,6 +574,25 @@ BOOL MoveIsHM(u16 moveId)
 
 void LONG_CALL Heap_FreeExplicit(u32 heapId, void *ptr);
 
+#include "../include/rh/rh_balanced_prices.h"
+
+// romhack: UPR FVX's balanced price of an item (0 = not in the table), for "Balance Shop Prices"
+static u32 RhBalancedPrice(u32 item)
+{
+    s32 lo = 0, hi = NELEMS(sRhBalancedPrices) - 1;
+    while (lo <= hi)
+    {
+        s32 mid = (lo + hi) / 2;
+        if (sRhBalancedPrices[mid][0] == item)
+            return sRhBalancedPrices[mid][1];
+        if (sRhBalancedPrices[mid][0] < item)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return 0;
+}
+
 // romhack: GetItemData (arm9 0x02077D88, hooked) with the randomizer's prices (RH_ItemPrice)
 s32 LONG_CALL RH_GetItemData(u16 item, u16 attrno, u32 heapId)
 {
@@ -581,7 +600,7 @@ s32 LONG_CALL RH_GetItemData(u16 item, u16 attrno, u32 heapId)
     s32 ret = GetItemAttr_PreloadedItemData(data, attrno);
     Heap_FreeExplicit(heapId, data);
     if (attrno == ITEM_PARAM_PRICE)
-        ret = RHCT_ItemPrice(item, ret);
+        ret = RHCT_ItemPrice(item, ret, RhBalancedPrice(item));
     return ret;
 }
 

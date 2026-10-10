@@ -74,9 +74,9 @@ static inline void RHCT_TransformTrade(u32 tradeno, void *tradeData)
     ((void (*)(u32, void *))RH_CORE_TABLE[RHCT_TRANSFORM_TRADE])(tradeno, tradeData);
 }
 
-static inline u32 RHCT_ItemPrice(u32 item, u32 vanilla)
+static inline u32 RHCT_ItemPrice(u32 item, u32 vanilla, u32 balanced)
 {
-    return ((u32 (*)(u32, u32))RH_CORE_TABLE[RHCT_ITEM_PRICE])(item, vanilla);
+    return ((u32 (*)(u32, u32, u32))RH_CORE_TABLE[RHCT_ITEM_PRICE])(item, vanilla, balanced);
 }
 
 #endif // RH_CORETABLE_H

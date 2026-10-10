@@ -613,6 +613,8 @@ arm9 RH_GetItemData 02077D88 3
 # GetPartySlotWithMove (Cut, Rock Smash, Strength, Rock Climb, Waterfall, Whirlpool: src/field/rh_items.c)
 arm9 RH_GetIdxOfFirstPartyMonWithMove 020542E8 2
 arm9 ScrCmd_GetPartySlotWithMove 0204D3CC 2
+# romhack: Misc. Tweaks "No Random Phone Calls" (src/field/rh_items.c)
+0002 RH_GearPhoneCheckCall 02251F20 2
 0012 TryUseHeldItem 0225471C 3
 0012 TryFling 02255F7C 3
 

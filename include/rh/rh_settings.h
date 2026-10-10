@@ -126,7 +126,8 @@ struct RhSettings
 
     // ---- Misc. Tweaks ----
     u8 uiTheme, instantText, randomPcPotion, nationalDexAtStart, fastEggs, lowerCaseNames;
-    u8 randomCatchTutorial, banLuckyEgg, balanceStaticLevels, runWithoutShoes, reusableTMs, forgettableTMs, noEVs;
+    u8 randomCatchTutorial, banLuckyEgg, balanceStaticLevels, noRandomCalls, reusableTMs, forgettableTMs, noEVs;
+    // (noRandomCalls took the old "Run Without Running Shoes" byte: running needs no shoes now, no setting)
 
     u8 reserved[16];
 };

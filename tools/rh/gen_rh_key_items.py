@@ -13,16 +13,16 @@ FIRST_ID = 2685                    # MAX_BASE_ITEM_NUM + 1
 # (constant, name, description, article, plural, icon, item data: ('key', field use) or ('copy', item))
 ITEMS = [
     ('RANDOMIZER_SETTINGS', 'Rando Settings',     # the bag's name buffer can't fit 'Randomizer Settings'
-     r'Opens the randomizer\nsettings to change\nor reset your run.',
+     r'A device that opens the randomizer\nsettings, so you can change them or\nreset your current run.',
      'the Rando Settings', 'Rando Settings', 'rh_randomizer_settings', ('key', 36)),
     ('INFINITE_CANDY', 'Infinite Candy',
-     r'A Rare Candy that\nnever runs out.\nRaises a level.',
+     r'A Rare Candy that never runs out.\nIt raises the level of a single\nPokémon by one.',
      'an Infinite Candy', 'Infinite Candies', 'rh_infinite_candy', ('copy', 'RARE_CANDY')),
     ('HEALING_KIT', 'Healing Kit',
-     r'Fully heals your\nwhole party, just\nlike a Pokémon Center.',
+     r'A kit that fully restores the HP and\nPP of all your Pokémon and heals their\nstatus conditions, anywhere.',
      'a Healing Kit', 'Healing Kits', 'rh_healing_kit', ('key', 37)),
     ('HM_KIT', 'HM Kit',
-     r'Uses the HMs you\nown (with Badges)\nwithout a Pokémon.',
+     r'A kit that uses the HMs you own, with\ntheir Badges, without needing a\nPokémon that knows the move.',
      'an HM Kit', 'HM Kits', 'rh_hm_kit', ('key', 38)),
 ]
 

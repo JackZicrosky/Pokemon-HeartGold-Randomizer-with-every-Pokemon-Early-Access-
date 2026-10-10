@@ -25,6 +25,15 @@ GIVE = '''	@ romhack: the Mega Ring
 	NPCMsg {after}
 '''
 
+START = '''	@ romhack: no Guide Gent tour / Map Card scene, the Apricorn Box from the start (owner's defaults)
+	SetVar VAR_SCENE_CHERRYGROVE_CITY_OW, 2
+	SetFlag FLAG_HIDE_CHERRYGROVE_GUIDE_GENT
+	SetVar VAR_SCENE_ROUTE_30_OW, 1
+	SetFlag FLAG_HIDE_ROUTE_30_APRICORN_MAN
+	SetFlag FLAG_GOT_APRICORN_BOX
+	GiveItem ITEM_APRICORN_BOX, 1, VAR_SPECIAL_RESULT
+'''
+
 
 def main():
     src = open('tools/rh/pret/scr_mom.s', encoding='utf-8').read()
@@ -40,6 +49,21 @@ def main():
     assert old in src
     src = src.replace(old, '_01D4:\n\tHasItem ITEM_MEGA_RING, 1, VAR_SPECIAL_RESULT\n\tCompare VAR_SPECIAL_RESULT, 1\n'
                       '\tGoToIfEq _rh_has_ring\n' + give + '\tWaitButton\n_rh_has_ring:\n\tNPCMsg msg_0545_T20R0201_00014\n', 1)
+    # owner: "Do you remember how?" YES skips the explanation (messages 11 and 13), straight to the Mega Ring
+    old = '\tNPCMsg msg_0545_T20R0201_00011\n\tGoTo _01C9\n'
+    assert old in src
+    src = src.replace(old, '\tGoTo _rh_ring\n', 1)
+    src = src.replace('\tWaitButton\n' + give, '\tWaitButton\n_rh_ring:\n' + give, 1)
+    # owner: the Pokegear comes with its Map Card (no Guide Gent), and running needs no shoes (the shoes flag also
+    # turns on the run button)
+    old = '\tSetFlag FLAG_GOT_POKEGEAR\n'
+    assert old in src
+    src = src.replace(old, old + '\tRegisterPokegearCard 1\n\tGiveRunningShoes\n', 1)
+    # the first morning (Mom's first scene): no Cherrygrove Guide Gent (both scenes), and the Apricorn Box from the
+    # start (no Route 30 scene): what those scenes would leave set
+    old = '\tSetVar VAR_SCENE_PLAYERS_HOUSE_1F, 1\n'
+    assert old in src
+    src = src.replace(old, old + START, 1)
     head = '// Romhack: pret/pokeheartgold scr_seq_0845_T20R0201.s, Mom gives the Mega Ring (tools/rh/gen_rh_mom_script.py).\n'
     open('data/scr_seq/scr_seq_00845_T20R0201.s', 'w', newline='\n').write(head + convert(src))
     lines = [line if line != '' else ' ' for line in lines]

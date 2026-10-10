@@ -17,5 +17,4 @@ Berries from all over the world!\nFresh picked, every one.\r
 Famous treats from every region!\nPokémon love them.\r
 WARNING!\nChanging the settings mid-run\rcan BREAK your current playthrough.\nPokémon, Trainers and items may\fall change.\rBe careful when using this!\r
 Open the Randomizer Settings? {YESNO 0}
-Your Pokémon were fully healed!
 The HM Kit works by itself: just walk\nup to a tree, rock, boulder, whirlpool,\rwaterfall, rock wall or water.\rFrom the Bag it can Fly you once you\nhave HM02 and the Storm Badge.\r

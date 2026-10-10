@@ -793,7 +793,7 @@ const ITEMDATA __data[] =
 
 [ITEM_PREMIER_BALL] =
 {
-    ITEM_PRICE(20),
+    ITEM_PRICE(200), // RH set price
     .holdEffect = 0,
     .holdEffectParam = 0,
     .pluckEffect = 0,
@@ -1053,7 +1053,7 @@ const ITEMDATA __data[] =
 
 [ITEM_CHERISH_BALL] =
 {
-    ITEM_PRICE(200),
+    ITEM_PRICE(200), // RH set price
     .holdEffect = 0,
     .holdEffectParam = 0,
     .pluckEffect = 0,

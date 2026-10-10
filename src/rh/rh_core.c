@@ -59,6 +59,7 @@ void RH_SetDefaultSettings(struct RhSettings *s)
     s->shopBanBad = TRUE;
     s->pickupBanBad = TRUE;
     s->randomIntroMon = TRUE;
+    s->noRandomCalls = TRUE;                 // owner: on by default
     s->bstChangePct = 20;
     s->bstFollowEvos = TRUE;
     s->statsFollowMegas = TRUE;

@@ -2159,17 +2159,14 @@ RhShop_Snacks:
 RhHealingKit:
     lockall
     heal_party
-    play_fanfare SEQ_ME_ASA
-    wait_fanfare
-    npc_msg 19
-    wait_button
-    closemsg
+    play_se SEQ_SE_DP_KAIFUKU
+    wait_se SEQ_SE_DP_KAIFUKU
     releaseall
     end
 
 RhHMKitInfo:
     lockall
-    npc_msg 20
+    npc_msg 19
     closemsg
     releaseall
     end

@@ -25,6 +25,8 @@ PRICE_OVERRIDES = {
     'RAGE_CANDY_BAR': 350,
 }
 MEGA_PRICE = 10000
+# owner: Kurt's Premier and Cherish Balls cost the same as a Poke Ball
+FORCED_PRICES = {'PREMIER_BALL': 200, 'CHERISH_BALL': 200}
 SHOP_ONLY_BALLS = {'MASTER_BALL', 'CHERISH_BALL', 'BEAST_BALL', 'DREAM_BALL', 'PARK_BALL', 'SPORT_BALL',
                    'STRANGE_BALL', 'SAFARI_BALL'}         # priced in src/rh/rh_shops.c
 
@@ -33,15 +35,15 @@ def set_prices(items, mega):
     path = 'data/itemdata/itemdata.c'
     src = open(path, encoding='utf-8').read()
     missing = []
-    for it in sorted(set(items) - SHOP_ONLY_BALLS):
-        m = re.search(r'(\[ITEM_%s\] =\s*\{\s*ITEM_PRICE\()(\d+)(\),)( // RH price)?' % it, src)
-        if m is None or (m.group(2) != '0' and not m.group(4)):
+    for it in sorted((set(items) - SHOP_ONLY_BALLS) | set(FORCED_PRICES)):
+        m = re.search(r'(\[ITEM_%s\] =\s*\{\s*ITEM_PRICE\()(\d+)(\),)( // RH (?:set )?price)?' % it, src)
+        if m is None or (m.group(2) != '0' and not m.group(4) and it not in FORCED_PRICES):
             continue
-        price = PRICE_OVERRIDES.get(it, MEGA_PRICE if it in mega else None)
+        price = FORCED_PRICES.get(it, PRICE_OVERRIDES.get(it, MEGA_PRICE if it in mega else None))
         if price is None:
             missing.append(it)
             continue
-        src = src[:m.start()] + m.group(1) + str(price) + m.group(3) + ' // RH price' + src[m.end():]
+        src = src[:m.start()] + m.group(1) + str(price) + m.group(3) + (' // RH set price' if it in FORCED_PRICES else ' // RH price') + src[m.end():]
     open(path, 'w', encoding='utf-8', newline='\n').write(src)
     if missing:
         print('no price for', ' '.join(missing))

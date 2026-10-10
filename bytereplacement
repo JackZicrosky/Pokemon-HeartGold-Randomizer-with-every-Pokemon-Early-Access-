@@ -578,3 +578,7 @@ arm9 020708B0 06 E0
 # romhack: Key Items pocket item names start 2px further right (x 0 -> 2), so a wide icon like the
 # Rando Settings New 3DS XL (owner's 24px-wide art) does not crowd its name (bag: ov15_021FF570, mov r3, #2)
 0015 08006262 02 23
+
+# romhack: running is always possible, from the very start (owner: no setting): PlayerSaveData_CheckRunningShoes
+# (arm9 0x0205C7C8) returns TRUE (movs r0, #1; bx lr)
+arm9 0205C7C8 01 20 70 47
