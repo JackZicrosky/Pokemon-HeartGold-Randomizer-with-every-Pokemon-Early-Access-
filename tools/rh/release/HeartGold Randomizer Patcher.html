@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeartGold Randomizer Patcher</title>
+<style>
+  :root {
+    --bg: #10141c; --panel: #181f29; --text: #e3e3e8; --dim: #8a8f99; --accent: #a36bfa; --cyan: #63d3fa;
+    --ok: #52d862; --warn: #fa5a4a; --border: #2a3240;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .step h2 { font-size: 1rem; margin: 0 0 6px; color: var(--cyan); }
+  .step p { margin: 0 0 10px; color: var(--dim); font-size: .92rem; }
+  label.file { display: inline-block; background: #232c3a; border: 1px solid var(--border); border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  label.file:hover { border-color: var(--accent); }
+  input[type=file] { display: none; }
+  .name { margin-left: 10px; font-size: .9rem; word-break: break-all; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 12px 20px; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; }
+  button:disabled { background: #3a3f4c; color: var(--dim); cursor: default; }
+  .status { margin-top: 14px; min-height: 1.5em; font-size: .95rem; }
+  .ok { color: var(--ok); } .bad { color: var(--warn); }
+  progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
+  a.dl { display: inline-block; margin-top: 12px; color: var(--ok); font-weight: 600; }
+  footer { color: var(--dim); font-size: .8rem; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HeartGold Randomizer Patcher</h1>
+  <p class="sub">Turns your own Pokémon HeartGold (USA) ROM into the HeartGold Expansion Randomizer. Everything happens on
+  this computer: nothing is uploaded, and it works without internet.</p>
+
+  <div class="step">
+    <h2>1. Your HeartGold ROM</h2>
+    <p>A clean <b>Pokémon HeartGold (USA) v1.0</b> <code>.nds</code> file (not already patched).</p>
+    <label class="file">Choose ROM…<input id="rom" type="file" accept=".nds"></label><span id="romName" class="name"></span>
+  </div>
+
+  <div class="step">
+    <h2>2. The patch</h2>
+    <p>The <code>HeartGold Expansion Randomizer vX.Y.Z.xdelta</code> file from the Releases page.</p>
+    <label class="file">Choose patch…<input id="patch" type="file" accept=".xdelta,.vcdiff"></label><span id="patchName" class="name"></span>
+  </div>
+
+  <button id="go" disabled>Patch the game</button>
+  <progress id="bar" value="0" max="1" hidden></progress>
+  <div id="status" class="status"></div>
+
+  <footer>Keep your original ROM: every new version of the patch needs the clean game again.</footer>
+</main>
+
+<script>
+'use strict';
+const CLEAN_SHA1 = '4fcded0e2713dc03929845de631d0932ea2b5a37';   // Pokemon HeartGold (USA) v1.0
+const $ = id => document.getElementById(id);
+let romFile = null, patchFile = null;
+
+$('rom').onchange = e => { romFile = e.target.files[0]; $('romName').textContent = romFile ? romFile.name : ''; ready(); };
+$('patch').onchange = e => { patchFile = e.target.files[0]; $('patchName').textContent = patchFile ? patchFile.name : ''; ready(); };
+function ready() { $('go').disabled = !(romFile && patchFile); }
+function status(msg, cls) { $('status').className = 'status ' + (cls || ''); $('status').innerHTML = msg; }
+
+// ---------------------------------------------------------------------------------------------------------------
+// VCDIFF (RFC 3284) decoder, with xdelta3's extensions (application header, Adler-32 window checksums).
+// ---------------------------------------------------------------------------------------------------------------
+function buildCodeTable() {   // RFC 3284 section 5.6: the default instruction code table
+  const NOOP = 0, ADD = 1, RUN = 2, COPY = 3, t = [];
+  const e = (t1, s1, m1, t2, s2, m2) => t.push([t1, s1, m1, t2, s2, m2]);
+  e(RUN, 0, 0, NOOP, 0, 0);
+  for (let s = 0; s <= 17; s++) e(ADD, s, 0, NOOP, 0, 0);
+  for (let m = 0; m < 9; m++) { e(COPY, 0, m, NOOP, 0, 0); for (let s = 4; s <= 18; s++) e(COPY, s, m, NOOP, 0, 0); }
+  for (let m = 0; m < 6; m++) for (let a = 1; a <= 4; a++) for (let c = 4; c <= 6; c++) e(ADD, a, 0, COPY, c, m);
+  for (let m = 6; m < 9; m++) for (let a = 1; a <= 4; a++) e(ADD, a, 0, COPY, 4, m);
+  for (let m = 0; m < 9; m++) e(COPY, 4, m, ADD, 1, 0);
+  return t;
+}
+const CODE_TABLE = buildCodeTable();
+
+function adler32(buf) {
+  let a = 1, b = 0;
+  for (let i = 0; i < buf.length; ) {
+    const end = Math.min(i + 5552, buf.length);
+    for (; i < end; i++) { a += buf[i]; b += a; }
+    a %= 65521; b %= 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
+function decodeVcdiff(src, patch, onProgress) {
+  let p = 0;
+  const byte = () => { if (p >= patch.length) throw new Error('The patch file is cut short.'); return patch[p++]; };
+  const varint = () => { let v = 0, b; do { b = byte(); v = v * 128 + (b & 0x7f); } while (b & 0x80); return v; };
+  if (byte() !== 0xD6 || byte() !== 0xC3 || byte() !== 0xC4) throw new Error('This is not an xdelta / VCDIFF patch.');
+  byte();                                                   // version
+  const hdr = byte();
+  if (hdr & 0x01) throw new Error('This patch uses secondary compression, which this patcher does not support.');
+  if (hdr & 0x02) throw new Error('This patch uses a custom code table, which this patcher does not support.');
+  if (hdr & 0x04) { const n = varint(); p += n; }           // xdelta3 application header (file names)
+  const chunks = [];
+  let outSize = 0;
+  while (p < patch.length) {
+    const win = byte();
+    let srcLen = 0, srcPos = 0, seg = null;
+    if (win & 0x03) {
+      srcLen = varint(); srcPos = varint();
+      if (win & 0x02) throw new Error('This patch copies from its own output (VCD_TARGET), which this patcher does not support.');
+      seg = src.subarray(srcPos, srcPos + srcLen);
+      if (seg.length !== srcLen) throw new Error('The ROM is smaller than this patch expects: is it the right game?');
+    }
+    varint();                                               // length of the delta encoding
+    const tgtLen = varint();
+    const deltaInd = byte();
+    if (deltaInd) throw new Error('This patch uses secondary compression, which this patcher does not support.');
+    const dataLen = varint(), instLen = varint(), addrLen = varint();
+    let checksum = null;
+    if (win & 0x04) { checksum = ((patch[p] << 24) | (patch[p + 1] << 16) | (patch[p + 2] << 8) | patch[p + 3]) >>> 0; p += 4; }
+    let dp = p, ip = p + dataLen, ap = ip + instLen;
+    const instEnd = ap, addrEnd = ap + addrLen;
+    p = addrEnd;
+    const out = new Uint8Array(tgtLen);
+    let o = 0;
+    const near = [0, 0, 0, 0], same = new Array(256 * 3).fill(0);
+    let nearSlot = 0;
+    const avar = () => { let v = 0, b; do { b = patch[ap++]; v = v * 128 + (b & 0x7f); } while (b & 0x80); return v; };
+    const ivar = () => { let v = 0, b; do { b = patch[ip++]; v = v * 128 + (b & 0x7f); } while (b & 0x80); return v; };
+    const decodeAddr = (mode, here) => {
+      let addr;
+      if (mode === 0) addr = avar();
+      else if (mode === 1) addr = here - avar();
+      else if (mode < 6) addr = near[mode - 2] + avar();
+      else addr = same[(mode - 6) * 256 + patch[ap++]];
+      near[nearSlot] = addr; nearSlot = (nearSlot + 1) % 4;
+      same[addr % (256 * 3)] = addr;
+      return addr;
+    };
+    const exec = (type, size, mode) => {
+      if (type === 1) {                                     // ADD
+        out.set(patch.subarray(dp, dp + size), o); dp += size; o += size;
+      } else if (type === 2) {                              // RUN
+        out.fill(patch[dp++], o, o + size); o += size;
+      } else if (type === 3) {                              // COPY
+        const addr = decodeAddr(mode, srcLen + o);
+        if (addr + size <= srcLen) { out.set(seg.subarray(addr, addr + size), o); o += size; }
+        else {
+          for (let k = 0; k < size; k++, o++) {
+            const a = addr + k;
+            out[o] = a < srcLen ? seg[a] : out[a - srcLen];
+          }
+        }
+      }
+    };
+    while (ip < instEnd) {
+      const [t1, s1, m1, t2, s2, m2] = CODE_TABLE[patch[ip++]];
+      if (t1) exec(t1, s1 === 0 ? ivar() : s1, m1);
+      if (t2) exec(t2, s2 === 0 ? ivar() : s2, m2);
+    }
+    if (o !== tgtLen) throw new Error('The patch file is damaged (a window decoded to the wrong size).');
+    if (checksum !== null && adler32(out) !== checksum) throw new Error('The result failed its checksum: the ROM is not the clean HeartGold (USA) v1.0 game, or the patch is damaged.');
+    chunks.push(out); outSize += tgtLen;
+    onProgress(p / patch.length);
+  }
+  return { chunks, outSize };
+}
+
+async function sha1Hex(buf) {
+  if (!(window.crypto && crypto.subtle)) return null;
+  const h = await crypto.subtle.digest('SHA-1', buf);
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+$('go').onclick = async () => {
+  $('go').disabled = true;
+  const bar = $('bar'); bar.hidden = false; bar.value = 0;
+  try {
+    status('Reading the files…');
+    const [rom, patch] = await Promise.all([romFile.arrayBuffer(), patchFile.arrayBuffer()]);
+    status('Checking your ROM…');
+    const sha = await sha1Hex(rom);
+    if (sha && sha !== CLEAN_SHA1) {
+      status('This ROM is not a clean <b>Pokémon HeartGold (USA) v1.0</b> (its SHA-1 is ' + sha + ', expected ' + CLEAN_SHA1 +
+             '). Use an unpatched copy of the game.', 'bad');
+      $('go').disabled = false; bar.hidden = true; return;
+    }
+    status('Patching… (this takes a few seconds)');
+    await new Promise(r => setTimeout(r, 30));
+    const { chunks } = decodeVcdiff(new Uint8Array(rom), new Uint8Array(patch), f => { bar.value = f; });
+    bar.value = 1;
+    const name = patchFile.name.replace(/\.(xdelta|vcdiff)$/i, '') + '.nds';
+    const url = URL.createObjectURL(new Blob(chunks, { type: 'application/octet-stream' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.className = 'dl'; a.textContent = 'Save ' + name;
+    status('Done! If the download didn\'t start by itself, click the link below. Open the new <code>.nds</code> file in your DS emulator.', 'ok');
+    $('status').appendChild(document.createElement('br')); $('status').appendChild(a);
+    a.click();
+  } catch (err) {
+    status('Something went wrong: ' + err.message, 'bad');
+  }
+  $('go').disabled = false;
+};
+</script>
+</body>
+</html>

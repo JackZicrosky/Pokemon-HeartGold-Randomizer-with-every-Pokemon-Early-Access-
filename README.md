@@ -22,10 +22,19 @@ This project only shares a **patch**, never the game itself. You need your own c
    Its SHA-1 checksum should be `4fcded0e2713dc03929845de631d0932ea2b5a37`.
 2. The patch file `HeartGold Expansion Randomizer vX.Y.Z.xdelta` from this repository's
    [**Releases**](../../releases) page (download the newest one).
-3. A patcher for `.xdelta` files, for example:
-   * **Rom Patcher JS** (works in your web browser, nothing to install):
-     <https://www.marcrobledo.com/RomPatcher.js/>
-   * **xdelta UI** (Windows) or **Delta Patcher** (Windows / macOS / Linux).
+3. **`HeartGold Randomizer Patcher.html`**, from the same Releases page (or
+   [here in the repository](tools/rh/release/HeartGold%20Randomizer%20Patcher.html)). It's a one-page patcher that
+   runs in your web browser, works offline and uploads nothing. Other `.xdelta` patchers work too.
+
+**Steps (with the HeartGold Randomizer Patcher)**
+
+1. Double-click `HeartGold Randomizer Patcher.html`: it opens in your web browser (Chrome, Edge, Firefox…).
+2. **Choose ROM…**: your `Pokemon HeartGold (USA) v1.0.nds`. (The patcher checks that it's the right, unpatched
+   game.)
+3. **Choose patch…**: the `.xdelta` file you downloaded.
+4. Click **Patch the game**. A few seconds later your browser saves the patched game (a new `.nds` file, about
+   256 MB).
+5. Open the patched `.nds` in a DS emulator such as **melonDS** or **DeSmuME** (or on a flashcart).
 
 **Steps (with Rom Patcher JS)**
 
