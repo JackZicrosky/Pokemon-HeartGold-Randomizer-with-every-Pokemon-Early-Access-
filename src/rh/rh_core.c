@@ -273,3 +273,10 @@ BOOL RH_SettingsOpenedInGame(void *args)
 {
     return args == &sMenuInGameArgs;
 }
+
+// Misc. Tweaks "UI Theme" (src/rh_theme.c); a Misc. Tweak, so it works with the randomizer off too
+u32 RH_UiTheme(void)
+{
+    struct RhSettings *s = RH_Settings();
+    return s->magic == RH_SETTINGS_MAGIC ? s->uiTheme : 0;
+}

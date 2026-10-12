@@ -19,6 +19,7 @@ enum
     RHCT_STATIC_LEVEL,
     RHCT_TRANSFORM_TRADE,
     RHCT_ITEM_PRICE,
+    RHCT_UI_THEME,
     RHCT_COUNT
 };
 
@@ -74,9 +75,14 @@ static inline void RHCT_TransformTrade(u32 tradeno, void *tradeData)
     ((void (*)(u32, void *))RH_CORE_TABLE[RHCT_TRANSFORM_TRADE])(tradeno, tradeData);
 }
 
-static inline u32 RHCT_ItemPrice(u32 item, u32 vanilla, u32 balanced)
+static inline u32 RHCT_ItemPrice(u32 item, u32 vanilla)
 {
-    return ((u32 (*)(u32, u32, u32))RH_CORE_TABLE[RHCT_ITEM_PRICE])(item, vanilla, balanced);
+    return ((u32 (*)(u32, u32))RH_CORE_TABLE[RHCT_ITEM_PRICE])(item, vanilla);
+}
+
+static inline u32 RHCT_UiTheme(void)
+{
+    return ((u32 (*)(void))RH_CORE_TABLE[RHCT_UI_THEME])();
 }
 
 #endif // RH_CORETABLE_H

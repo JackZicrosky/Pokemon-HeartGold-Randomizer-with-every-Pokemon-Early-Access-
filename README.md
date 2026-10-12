@@ -99,7 +99,8 @@ shops and key items above.
 Built but not fully tested in the game yet: static Pokémon (gifts, legendaries, roamers), the trades themselves,
 TM / tutor moves, egg moves, move data, No Random Phone Calls.
 
-Not finished yet: UI themes, custom player graphics, Pokémon palettes, Battle Style, pickup items, trainer names and
+Not finished yet: UI themes (an AMOLED placeholder works; the Randomizer theme and the final AMOLED colours are
+still to come), custom player graphics, Pokémon palettes, Battle Style, pickup items, trainer names and
 classes, wild held items, the Safari Zone generation selector, the Goldenrod herb shop, your rival keeping the exact
 starter he stole for the whole game.
 

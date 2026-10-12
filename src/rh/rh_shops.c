@@ -45,10 +45,29 @@ static u32 BalancePrice(u32 price)
     return sBalanceCurve[NELEMS(sBalanceCurve) - 1];
 }
 
-// vanilla: the item data's price; balanced: UPR FVX's balanced price for the item (0 = none; src/item.c)
-u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla, u32 balanced)
+#include "../../include/rh/rh_balanced_prices.h"
+
+// UPR FVX's balanced price of an item (0 = not in the table)
+static u32 BalancedPrice(u32 item)
 {
-    u32 price = vanilla != 0 ? vanilla : ExtraBallPrice(item);
+    s32 lo = 0, hi = NELEMS(sRhBalancedPrices) - 1;
+    while (lo <= hi)
+    {
+        s32 mid = (lo + hi) / 2;
+        if (sRhBalancedPrices[mid][0] == item)
+            return sRhBalancedPrices[mid][1];
+        if (sRhBalancedPrices[mid][0] < item)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return 0;
+}
+
+// vanilla: the item data's price
+u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla)
+{
+    u32 balanced, price = vanilla != 0 ? vanilla : ExtraBallPrice(item);
     if (!RH_Active() || price == 0)
         return price;
     if (S->shopAddCheapRareCandy && item == ITEM_RARE_CANDY)
@@ -56,6 +75,7 @@ u32 LONG_CALL RH_ItemPrice(u32 item, u32 vanilla, u32 balanced)
     if (!S->shopBalancePrices)
         return price;
     // FVX's balanced price table first (not for the balls only the romhack sells: FVX lists the Master Ball at 3000)
+    balanced = BalancedPrice(item);
     if (vanilla != 0 && balanced != 0)
         price = balanced;
     return BalancePrice(price);
