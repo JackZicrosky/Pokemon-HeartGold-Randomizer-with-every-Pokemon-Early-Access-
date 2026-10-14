@@ -358,6 +358,10 @@ all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin
 	$(MAKE) move_narc
 	$(ARMIPS) armips/global.s $(ARMIPS_FLAGS)
 	$(NARCHIVE) create $(FILESYS)/a/0/2/8 $(BUILD)/a028/ -nf
+	@# romhack: the AMOLED UI theme palettes (made from the ROM's palettes + tools/rh/amoled/learned.json)
+	$(PYTHON) tools/rh/gen_rh_amoled.py
+	cp data/rh/rh_amoled.bin $(FILESYS)/data/rh_amoled.bin
+	grep -qx "/data/rh_amoled.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled.bin" >> $(BASE)_dsrom/path_order.txt
 	@echo "Making ROM..."
 ifeq ($(ROM_TOOL),$(DSROM))
 	$(DSROM_BRIDGE) pack --rom $(BUILDROM)

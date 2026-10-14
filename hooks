@@ -617,6 +617,10 @@ arm9 RH_GfxLoadFromOpenNarc_GetSizeOut 02007CAC
 arm9 RH_AllocAndReadWholeNarcMember 02007524 3
 arm9 RH_AllocAtEndAndReadWholeNarcMember 02007540 3
 arm9 RH_NARC_AllocAndReadWholeMember 0200771C 3
+arm9 RH_ReadFromNarcMemberByIdPair 02007560
+arm9 RH_AllocAndReadFromNarcMemberByIdPair 0200757C
+arm9 RH_AllocAtEndAndReadFromNarcMemberByIdPair 0200759C
+arm9 RH_NARC_ReadFromMember 0200782C
 # romhack: the HM Kit (src/item.c) - the field's "which Pokemon knows this move" (Surf, Waterfall) and the scripts'
 # GetPartySlotWithMove (Cut, Rock Smash, Strength, Rock Climb, Waterfall, Whirlpool: src/field/rh_items.c)
 arm9 RH_GetIdxOfFirstPartyMonWithMove 020542E8 2

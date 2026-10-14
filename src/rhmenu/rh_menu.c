@@ -102,6 +102,28 @@ static const u16 sPal[16] = {
     [C_BLOOD_SEL] = RGB(8, 1, 2),
 };
 
+// The same, for the AMOLED UI Theme (the owner's design: "UI screenshots - AMOLED", options screens). Used as soon as
+// the UI Theme row says AMOLED.
+static const u16 sPalAmoled[16] = {
+    [C_BG]        = RGB(3, 3, 3),
+    [C_PANEL]     = RGB(0, 0, 0),
+    [C_TEXT]      = RGB(28, 28, 29),
+    [C_SHADOW]    = RGB(11, 11, 11),
+    [C_VALUE]     = RGB(8, 30, 16),
+    [C_VALUE_SH]  = RGB(3, 14, 7),
+    [C_DIM]       = RGB(16, 15, 13),
+    [C_HEADER]    = RGB(31, 22, 10),
+    [C_SEL]       = RGB(15, 9, 2),
+    [C_ACCENT]    = RGB(27, 16, 2),
+    [C_HEADBAR]   = RGB(7, 4, 1),
+    [C_OK]        = RGB(12, 26, 31),
+    [C_WARN]      = RGB(31, 11, 9),
+    [C_BLOOD]     = RGB(31, 2, 3),
+    [C_BLOOD_SEL] = RGB(8, 1, 2),
+};
+static u8 sPalShown = 0xFF;          // which of the two palettes is in palette RAM (0xFF: none yet)
+static struct RhSettings sPending;   // (defined below: the settings being edited)
+
 static u8 *sBuf[2];          // 256x192 4bpp bitmaps, tiled like the background
 static u8 sDirty[2];
 
@@ -243,7 +265,13 @@ static void TextCenter(u32 scr, s32 cx, s32 y, const char *s, u8 fg, u8 sh)
 
 static void Flush(void)
 {
-    u32 scr;
+    u32 scr, i, amoled = sPending.uiTheme == 2;
+    if (sPalShown != amoled)
+    {
+        for (i = 0; i < 16; i++)
+            BGPAL_MAIN[i] = BGPAL_SUB[i] = amoled ? sPalAmoled[i] : sPal[i];
+        sPalShown = amoled;
+    }
     for (scr = 0; scr < 2; scr++)
     {
         if (sDirty[scr])
@@ -272,6 +300,7 @@ static void SetupScreens(void)
         for (i = 0; i < 16; i++)
             pal[i] = sPal[i];
     }
+    sPalShown = 0xFF;                         // Flush puts the theme's palette in
     REG32(DISPCNT_MAIN) = 0x00010100;         // graphics display, BG mode 0, BG0 only
     REG32(DISPCNT_SUB) = 0x00010100;
     REG16(BG0CNT_MAIN) = 31 << 8;             // 4bpp, char base 0, screen base 31, 256x256

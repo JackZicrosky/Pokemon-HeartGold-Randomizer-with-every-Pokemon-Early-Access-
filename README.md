@@ -94,13 +94,12 @@ This project only shares a **patch**, never the game itself. You need your own c
 
 Working and tested in the game: the options screen, presets and Reset The Run; random starters (your rival's too),
 trainers, wild Pokémon, movesets, evolutions, field items, shops and Balance Shop Prices; the trade NPCs' text; the
-shops and key items above.
+shops and key items above; the **AMOLED UI Theme** (Misc. Tweaks), made from JackZicrosky's own designs.
 
 Built but not fully tested in the game yet: static Pokémon (gifts, legendaries, roamers), the trades themselves,
 TM / tutor moves, egg moves, move data, No Random Phone Calls.
 
-Not finished yet: UI themes (an AMOLED placeholder works; the Randomizer theme and the final AMOLED colours are
-still to come), custom player graphics, Pokémon palettes, Battle Style, pickup items, trainer names and
+Not finished yet: the Randomizer UI Theme, custom player graphics, Pokémon palettes, Battle Style, pickup items, trainer names and
 classes, wild held items, the Safari Zone generation selector, the Goldenrod herb shop, your rival keeping the exact
 starter he stole for the whole game.
 
@@ -117,7 +116,8 @@ starter he stole for the whole game.
 * **[Universal Pokémon Randomizer FVX](https://github.com/upr-fvx/universal-pokemon-randomizer-fvx)**: the randomizer
   this romhack's options follow (behaviour, descriptions, balanced shop prices, trainer and static Pokémon lists).
 * **HeartGold Generations**: the **Healing Kit** item icon.
-* **JackZicrosky**: project owner, design, the **Rando Settings** (New Nintendo 3DS XL) item icon.
+* **JackZicrosky**: project owner, design, the **AMOLED UI Theme** designs, the **Rando Settings** (New Nintendo 3DS XL)
+  item icon.
 * **FireRed Expansion Randomizer** (JackZicrosky): the original version of this romhack, its rainbow **Infinite
   Candy** and **HM Kit** item icons, and the shop lists.
 * Pokémon is © Nintendo / Creatures Inc. / GAME FREAK inc. This is a free, non-commercial fan project: it is not
