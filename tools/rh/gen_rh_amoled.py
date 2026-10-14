@@ -22,10 +22,13 @@ import collections, json, os, struct, sys
 ROOT = 'base/root/'
 LEARNED = 'tools/rh/amoled/learned.json'
 OUT = 'data/rh/rh_amoled.bin'
+SCREENS = 'tools/rh/amoled/screens.json'      # per screen: fingerprint + the owner's colours (tools/rh/amoled/learn.py)
+PAGES_OUT = 'data/rh/rh_amoled_pages.bin'
 ART = {4, 114, 194, 195, 18, 20, 69, 46, 174, 264, 81, 8, 120}
 EXTRA_UI = set()
 NEAR = 3            # max channel distance for "nearest recoloured colour"
-CONSISTENT = 0.75   # share of votes the most common target needs for the per-archive / global maps
+CONSISTENT = 0.75
+ANY = 0xFFFFFFFF    # entry for any screen (else: a screen context, see src/rh_theme.c)   # share of votes the most common target needs for the per-archive / global maps
 
 
 def lz(b):
@@ -88,8 +91,17 @@ def pack(r, g, b):
 
 
 def main():
-    learned = json.load(open(LEARNED))
-    owner = {}                                   # (narc, file, idx) -> colour
+    raw = json.load(open(LEARNED))             # "narc,file,index@screen context": {colour: pixels}
+    learned = collections.defaultdict(collections.Counter)
+    by_ctx = collections.defaultdict(dict)       # (narc, file, context) -> {index: colour on that screen}
+    for k, v in raw.items():
+        e, _, ctx = k.partition('@')
+        n, f, i = map(int, e.split(','))
+        if ctx:
+            by_ctx[(n, f, int(ctx))][i] = int(max(v.items(), key=lambda kv: kv[1])[0])
+        for t, w in v.items():
+            learned['%d,%d,%d' % (n, f, i)][t] += w
+    owner = {}                                   # (narc, file, idx) -> colour, any screen (palettes of unseen screens)
     for k, v in learned.items():
         owner[tuple(map(int, k.split(',')))] = int(max(v.items(), key=lambda kv: kv[1])[0])
     narcs = sorted({k[0] for k in owner} | {n for n in range(0, 300) if os.path.exists(ROOT + 'a/%d/%d/%d' % (n // 100, n // 10 % 10, n % 10))})
@@ -182,7 +194,11 @@ def main():
     changed = {n for (n, f, i), t in owner.items() if (n, f) in pals and i < len(pals[(n, f)]) and t != pals[(n, f)][i] & 0x7FFF}
     fill_archives = (changed | EXTRA_UI) - ART
     print('filled archives:', sorted(fill_archives))
+    contexts = collections.defaultdict(list)
+    for (n, f, ctx) in by_ctx:
+        contexts[(n, f)].append(ctx)
     entries = []
+    loaded = {}
     stats = collections.Counter()
     for (n, f), c in sorted(pals.items()):
         new = list(c)
@@ -194,23 +210,115 @@ def main():
         # every palette file outside the art archives (the colour-id mode uses the list too), and art files the owner
         # changed
         if (n not in ART and n < 320) or new != c:
-            entries.append(((n << 16) | f, STARTS[(n, f)], new))
+            entries.append(((n << 16) | f, ANY, STARTS[(n, f)], new))
+            loaded[(n, f, None)] = new
+            # each screen gets exactly the owner's colours: its own version where they differ from the above
+            for ctx in contexts.get((n, f), ()):
+                var = list(new)
+                for i, t in by_ctx[(n, f, ctx)].items():
+                    if i < len(var):
+                        var[i] = t | (c[i] & 0x8000)
+                if var != new:
+                    entries.append(((n << 16) | f, ctx, STARTS[(n, f)], var)); stats['screen versions'] += 1
+                loaded[(n, f, ctx)] = var
     entries.sort()
     mask = [0] * 10
-    for key, _, _ in entries:
+    for key, _, _, _ in entries:
         mask[key >> 21] |= 1 << (key >> 16 & 31)
     data = bytearray()
     offs = []
-    base = 48 + 8 * len(entries)
-    for key, start, new in entries:
+    base = 48 + 12 * len(entries)
+    for key, ctx, start, new in entries:
         offs.append(base + len(data))
         data += struct.pack('<II', len(new), start) + struct.pack('<%dH' % len(new), *new)
-    out = bytearray(b'RHA2' + struct.pack('<I', len(entries)) + struct.pack('<10I', *mask))
-    for (key, _, _), off in zip(entries, offs):
-        out += struct.pack('<II', key, off)
+    out = bytearray(b'RHA3' + struct.pack('<I', len(entries)) + struct.pack('<10I', *mask))
+    for (key, ctx, _, _), off in zip(entries, offs):
+        out += struct.pack('<III', key, ctx, off)
     out += data
     open(OUT, 'wb').write(out)
+    pages(loaded)
     print('%s: %d palettes, %d bytes; entries: %s' % (OUT, len(entries), len(out), dict(stats)))
+
+
+def pages(loaded):
+    """data/rh/rh_amoled_pages.bin (layout: src/rh_theme.c ShowScreen): screens that show a palette another screen
+    loaded, coloured differently by the owner: per screen fingerprint, which rows (16 colours) become which version."""
+    if not os.path.exists(SCREENS):
+        open(PAGES_OUT, 'wb').write(b'RHPG' + struct.pack('<II', 0, 0))
+        return
+    screens = json.load(open(SCREENS))
+    # (narc, file, context) -> {screen: {index: colour}}
+    shown = collections.defaultdict(dict)
+    for name, sc in screens.items():
+        for k, t in sc['cols'].items():
+            e, ctx = k.split('@')
+            n, f, i = map(int, e.split(','))
+            shown[(n, f, int(ctx))].setdefault(name, {})[i] = t
+    rows = {}                      # 16 colours -> row number
+    def row_id(r):
+        return rows.setdefault(tuple(r), len(rows))
+    per_sig = collections.defaultdict(dict)    # fingerprint -> {(narc, file, context, row): target}
+    skipped = 0
+    for (n, f, ctx), by in shown.items():
+        base = loaded.get((n, f, ctx)) or loaded.get((n, f, None))
+        if base is None or len(by) < 2:
+            continue
+        targets = {}
+        for name, cols in by.items():
+            t = list(base)
+            for i, c in cols.items():
+                if i < len(t):
+                    t[i] = c | (t[i] & 0x8000)
+            targets[name] = t
+        for r in range(len(base) // 16):
+            vers = {tuple(base[16 * r:16 * r + 16])} | {tuple(t[16 * r:16 * r + 16]) for t in targets.values()}
+            if len(vers) < 2:
+                continue
+            for name, t in targets.items():
+                want = tuple(t[16 * r:16 * r + 16])
+                for v in vers:
+                    if v == want:
+                        continue
+                    if len(set(v)) < 2:
+                        skipped += 1          # a one-colour row can't be told from empty memory: not searched for
+                        continue
+                    per_sig[screens[name]['sig']][(row_id(v), row_id(want))] = True
+    vpatch = collections.defaultdict(list)     # fingerprint -> tile patches (see src/rh_theme.c TilePatches)
+    for name, sc in screens.items():
+        for addr, half, frm, to in sc.get('vpatch', []):
+            vpatch[sc['sig']].append((addr - 0x06000000) | half << 23 | frm << 24 | to << 28)
+    ipatch = collections.defaultdict(dict)     # fingerprint -> {palette RAM index: colour} (src/rh_theme.c SetIndex)
+    for name, sc in screens.items():
+        for i, c in sc.get('ipatch', []):
+            ipatch[sc['sig']][i] = c
+    regs = collections.defaultdict(dict)       # fingerprint -> {register offset from 0x04000000: value}
+    for name, sc in screens.items():
+        for a, v in sc.get('regs', []):
+            regs[sc['sig']][a] = v
+    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs))
+    data = bytearray()
+    offs = []
+    base_off = 12 + 8 * len(sigs) + 32 * len(rows)
+    for sg in sigs:
+        offs.append(base_off + len(data))
+        pairs = list(per_sig.get(sg, {}))
+        data += struct.pack('<I', len(pairs)) + b''.join(struct.pack('<II', a, b) for a, b in pairs)
+        vp = sorted(set(vpatch.get(sg, [])))
+        data += struct.pack('<I', len(vp)) + b''.join(struct.pack('<I', v) for v in vp)
+        ip = sorted(ipatch.get(sg, {}).items())
+        data += struct.pack('<I', len(ip)) + b''.join(struct.pack('<I', i << 16 | c) for i, c in ip)
+        rg = sorted(regs.get(sg, {}).items())
+        data += struct.pack('<I', len(rg)) + b''.join(struct.pack('<I', a << 16 | v) for a, v in rg)
+    out = bytearray(b'RHPG' + struct.pack('<II', len(sigs), len(rows)))
+    for sg, off in zip(sigs, offs):
+        out += struct.pack('<II', sg, off)
+    for r, _ in sorted(rows.items(), key=lambda kv: kv[1]):
+        out += struct.pack('<16H', *r)
+    out += data
+    open(PAGES_OUT, 'wb').write(out)
+    print('%s: %d screens, %d rows, %d tile patches, %d palette index patches, %d one-colour rows not searched'
+          % (PAGES_OUT, len(sigs), len(rows), sum(len(set(v)) for v in vpatch.values()),
+             sum(len(v) for v in ipatch.values()), skipped))
 
 
 if __name__ == '__main__':

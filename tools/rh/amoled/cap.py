@@ -1,5 +1,4 @@
 # test only: capture UI screens in Default (MODE=def) or colour-id (MODE=id, uiTheme 3) mode.
-# Work folder (captures in WORK/caps, test saves in WORK): $RH_AMOLED_WORK, default: this folder.
 # usage: cap.py MODE SAVE|none TOKENS...
 #   theme      poke uiTheme (0 in def mode, 3 in id mode) into every settings copy
 #   idreset    restart the palette slot log (do it right before a screen loads)
@@ -20,28 +19,62 @@ m = h.emu.memory.unsigned
 h.run(600)
 if save != 'none' and cont:
     h.hold('A', 4); h.run(300); h.hold('A', 4); h.run(300); h.hold('A', 4); h.run(500)
+def io_regs():
+    # the display registers of both engines, with the write-only ones (BG scroll...) as the game wrote them: from a
+    # savestate (DeSmuME keeps every written register value there); 0x70 bytes each
+    rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
+    tmp = '/tmp/cap_%d.dst' % os.getpid()
+    h.emu.savestate.save_file(tmp)
+    st = open(tmp, 'rb').read(); os.remove(tmp)
+    out = b''
+    i = -1
+    for base in (0x04000000, 0x04001000):         # (the sub engine's block comes after the main one)
+        live = rd(base, 0x70)
+        i = st.find(live[:12], i + 1)
+        out += st[i:i + 0x70] if i >= 0 else live
+    return out
+
 LOG = None
 def log_addr():
-    global LOG
-    if LOG is None:
-        for a in range(0x023D8000, 0x02400000, 4):
-            if m[a] == 0x44 and m[a+1] == 0x50 and m[a+2] == 0x48 and m[a+3] == 0x52:
-                LOG = a; break
-    return LOG
+    # the log is on the heap (allocated by the first id-mode palette read); its signature is also in overlay 129's code
+    ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+    sig = bytes([0x44, 0x50, 0x48, 0x52, 0xBB, 0xAF, 0xB7, 0xAD])     # "RHPD", ~"RHPD"
+    i = ram.find(sig)
+    while i >= 0 and 0x023D8000 <= 0x02000000 + i < 0x023E0000:
+        i = ram.find(sig, i + 1)
+    return 0x02000000 + i + 4 if i >= 0 else None      # +4: the reads below expect count at LOG + 4
 for k in sys.argv[3:]:
     if k == 'theme':
         for a in play.find_all_rh_settings(h.emu.memory):
             h.emu.memory.write_byte(a + 213, {'id': 3, 'am': 2}.get(mode, 0))
     elif k == 'idreset':
         a = log_addr()
-        for i in range(4): h.emu.memory.write_byte(a + 4 + i, 0)
+        if a is not None:
+            for i in range(4): h.emu.memory.write_byte(a + 4 + i, 0)
     elif k.startswith('cap:'):
         n = k[4:]
+        if mode == 'am' and os.path.exists('%s/id_%s.json' % (OUT, n)):
+            # wait (up to 2 s) for the screen the colour-id capture saw (same fingerprint): the runs drift apart
+            want = json.load(open('%s/id_%s.json' % (OUT, n))).get('sig')
+            for _ in range(120):
+                ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+                if want is None or j < 0 or int.from_bytes(ram[j + 4:j + 8], 'little') == want:
+                    break
+                h.run(1)
+            else:
+                print('WARN', n, 'screen never matched the id capture')
         h.emu.screenshot().save('%s/%s_%s.png' % (OUT, mode, n))
-        if mode == 'id':
-            a = log_addr(); rd = lambda o: m[a+o] | (m[a+o+1] << 8)
+        if mode in ('id', 'am'):                  # registers, palettes, OAM, BG + OBJ VRAM (dsrender.py)
+            rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
+            open('%s/%s_%s.vram2' % (OUT, mode, n), 'wb').write(io_regs() + rd(0x05000000, 0x800)
+                + rd(0x07000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000) + rd(0x06400000, 0x40000) + rd(0x06600000, 0x20000))
+        a = log_addr() if mode == 'id' else None
+        if a is not None:
+            rd = lambda o: m[a+o] | (m[a+o+1] << 8)
             cnt = rd(4) | rd(6) << 16
-            json.dump({'count': cnt, 'narc': [rd(8 + 2*i) for i in range(64)], 'file': [rd(136 + 2*i) for i in range(64)]},
+            ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+            sig = int.from_bytes(ram[j + 4:j + 8], 'little') if j >= 0 else None
+            json.dump({'sig': sig, 'count': cnt, 'narc': [rd(8 + 2*i) for i in range(64)], 'file': [rd(136 + 2*i) for i in range(64)], 'ctx': [rd(264 + 2*i) for i in range(64)]},
                       open('%s/id_%s.json' % (OUT, n), 'w'))
             if cnt > 64: print('WARN', n, 'slots', cnt)
     elif k.startswith('goto:'):
@@ -64,6 +97,24 @@ for k in sys.argv[3:]:
         h.emu.input.touch_release(); h.run(20)
     elif k.startswith('paldump:'):              # paldump:NAME  all 4 palette RAMs (2 KB) -> caps/NAME.pal
         open('%s/%s.pal' % (OUT, k[8:]), 'wb').write(bytes(m[0x05000000 + i] for i in range(0x800)))
+    elif k == 'memuse':                           # highest non-zero byte below overlay 129, in 4 KB steps
+        ram = bytes(h.emu.memory.read(0x02300000, 0x023D7FFF, 1, False))
+        top = max((i for i in range(0, len(ram), 4096) if any(ram[i:i + 4096])), default=0)
+        free = 0
+        for i in range(len(ram) - 4096, -1, -4096):
+            if any(ram[i:i + 4096]): break
+            free += 4096
+        print('memuse top used block', hex(0x02300000 + top), 'free below 129:', hex(free))
+    elif k == 'heaps':                            # gRhDebug.heapMinFree (core, ITCM 0x01FF8000+)
+        ram = bytes(h.emu.memory.read(0x01FF8000, 0x01FFFFFF, 1, False)); j = ram.find(bytes([0x42, 0x44, 0x48, 0x52]))
+        print('heaps', j, [int.from_bytes(ram[j + 4 * (1 + 3 + i): j + 4 * (2 + 3 + i)], 'little') for i in range(12)] if j >= 0 else None)
+    elif k.startswith('vram:'):                  # vram:NAME  display registers, palettes, BG VRAM -> caps/NAME.vram
+        rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
+        blob = rd(0x04000000, 0x70) + rd(0x04001000, 0x70) + rd(0x05000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000)
+        open('%s/%s.vram' % (OUT, k[5:]), 'wb').write(blob)
+    elif k == 'sigdbg':
+        ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+        print('sigdbg', [int.from_bytes(ram[j + 4 * i:j + 4 * i + 4], 'little') for i in range(1, 5)])
     elif k == 'amdbg':
         for a in range(0x023D8000, 0x02400000, 4):
             if m[a] == 0x52 and m[a+1] == 0x48 and m[a+2] == 0x41 and m[a+3] == 0x44:

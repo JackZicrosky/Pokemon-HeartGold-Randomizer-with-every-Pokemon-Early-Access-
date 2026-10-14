@@ -11,11 +11,20 @@ u32 __attribute__((section(".rh_boot"))) RH_Boot(void)
     return 0;
 }
 
-// Resident RAM for the randomizer core's per-settings tables (the core's ITCM is too small for them). Overlay 129
-// stays loaded for the whole game.
-static u32 sRhResident[RH_RESIDENT_SIZE / 4];
+// Resident RAM for the randomizer core's per-settings tables (the core's ITCM is too small for them): taken once
+// from the end of the system heap (heap 0, which lives for the whole game and keeps ~48 KB free) on first use,
+// zeroed. (It used to be a static array in overlay 129, which is full.)
+#define Heap_AllocAtEnd ((void *(*)(u32, u32))(0x0201AACC | 1))
+static u32 *sRhResident;
 
 void *RH_Resident(void)
 {
+    u32 i;
+    if (sRhResident == NULL)
+    {
+        sRhResident = Heap_AllocAtEnd(0, RH_RESIDENT_SIZE);
+        for (i = 0; i < RH_RESIDENT_SIZE / 4; i++)
+            sRhResident[i] = 0;
+    }
     return sRhResident;
 }

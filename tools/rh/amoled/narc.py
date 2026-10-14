@@ -1,5 +1,4 @@
 # test only: read a NARC's members; render NCLR palettes as rows of swatches
-# Work folder (captures in WORK/caps, test saves in WORK): $RH_AMOLED_WORK, default: this folder.
 import os, struct, sys
 from PIL import Image, ImageDraw
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'base', 'root') + '/'

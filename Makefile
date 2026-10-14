@@ -361,6 +361,8 @@ all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin
 	@# romhack: the AMOLED UI theme palettes (made from the ROM's palettes + tools/rh/amoled/learned.json)
 	$(PYTHON) tools/rh/gen_rh_amoled.py
 	cp data/rh/rh_amoled.bin $(FILESYS)/data/rh_amoled.bin
+	cp data/rh/rh_amoled_pages.bin $(FILESYS)/data/rh_amoled_pages.bin
+	grep -qx "/data/rh_amoled_pages.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled_pages.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_amoled.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled.bin" >> $(BASE)_dsrom/path_order.txt
 	@echo "Making ROM..."
 ifeq ($(ROM_TOOL),$(DSROM))
