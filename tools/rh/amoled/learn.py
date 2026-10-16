@@ -4,9 +4,9 @@ import glob, json, os, sys, collections
 from PIL import Image, ImageChops
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import narc
-D = os.environ.get('RH_UI_DEFAULT', '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots') + '/'
-A = os.environ.get('RH_UI_AMOLED', '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots - AMOLED') + '/'
-CAPS = os.environ.get('RH_AMOLED_WORK', os.path.dirname(os.path.abspath(__file__))) + '/caps/'
+D = '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots/'
+A = '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots - AMOLED/'
+CAPS = os.path.dirname(os.path.abspath(__file__)) + '/caps/'
 _files = {}
 def palette(n, f):
     if n not in _files:
@@ -26,6 +26,13 @@ ctx_votes = collections.defaultdict(lambda: collections.defaultdict(collections.
 pix = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))   # screen -> entry -> colour -> pixels
 report = []
 MATCH = {}
+# screens whose tile maps the theme code itself repoints per button (src/rh_theme.c BattleMoves): no map patches,
+# and tile patches even where the owner coloured a shared tile pixel differently per button (type colours)
+NOMAP = {'72_battle_check_moves.png'}
+# screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
+# other states of a screen (captures) that use its page
+ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
+FORCE = {'61_battle_moves.png': 'e_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp1', '68_battle_bag_pressed.png': 'e_bp1'}
 for f in sorted(glob.glob(A + '[0-9]*.png')):
     name = os.path.basename(f)
     if not os.path.exists(D + name): continue
@@ -38,6 +45,9 @@ for f in sorted(glob.glob(A + '[0-9]*.png')):
     for k, im in defs.items():
         diff = 98304 - ImageChops.difference(d, im).convert('L').histogram()[0]
         if diff < bn: best, bn = k, diff
+    if name in FORCE:
+        best = FORCE[name]
+        bn = 98304 - ImageChops.difference(d, defs[best]).convert('L').histogram()[0]
     if best is None or bn > 70000 or not os.path.exists(CAPS + 'id_' + best + '.json'):
         continue
     MATCH[name] = best
@@ -80,6 +90,8 @@ for sc, cv in ctx_votes.items():
     sig = json.load(open(CAPS + 'id_' + MATCH[sc] + '.json')).get('sig')
     if sig is None: continue
     screens[sc] = {'sig': sig, 'cols': {'%d,%d,%d@%d' % e: int(max(v.items(), key=lambda kv: kv[1])[0]) for e, v in cv.items()}}
+    al = [json.load(open(CAPS + 'id_' + a + '.json')).get('sig') for a in ALIAS.get(sc, []) if os.path.exists(CAPS + 'id_' + a + '.json')]
+    if al: screens[sc]['alias'] = [a for a in al if a is not None]
 # tile patches: on a screen, pixels of one palette entry the owner gave a less common colour get a spare entry of the
 # same palette row (never shown on any captured screen) coloured that way; their tile data points there
 import dsrender
@@ -100,18 +112,35 @@ for sc, ents in pix.items():
         nopatch['screen not rendered reliably (3D, affine...)'] += sum(len(p) for c in ents.values() for p in c.values())
         continue
     patches = set()
+    shown_idx = {q['idx'] for half in scr for line in half for q in line if q}    # entries this screen shows at all
+    # what the owner wants at every use of a tile pixel (a tile can be drawn in many places): patch only where most agree
+    o_img = Image.open(A + sc).convert('RGB')
+    tile_want = collections.defaultdict(collections.Counter)
+    for yy in range(384):
+        for xx in range(256):
+            q = scr[yy // 192][yy % 192][xx]
+            if q is not None and q.get('half') is not None:
+                op = o_img.getpixel((xx, yy)); tile_want[(q['vram'], q['half'])][(o1(op[0]), o1(op[1]), o1(op[2]))] += 1
     for (n, f, i, ctx), cols in ents.items():
         if len(cols) < 2: continue
         major = max(cols.items(), key=lambda kv: len(kv[1]))[0]
         row = i // 16
         for col, pts in cols.items():
             if col == major: continue
-            key = (n, f, row, col)
+            key = (sc, n, f, row, col)            # (spares are per screen: each screen sets its own row versions)
+            base = None
+            for k in pts:
+                q = scr[k // 256 // 192][k // 256 % 192][k % 256]
+                if q is not None and q['idx'] % 16 == i % 16:
+                    base = q['idx'] & ~15; break
+            if key in spare and base is not None and (base | spare[key]) in shown_idx:
+                del spare[key]                        # (that spare is drawn by something else on this screen)
             if key not in spare:
-                free = [j for j in range(1, 16) if row * 16 + j not in used[(n, f)] and j not in taken[(n, f, row)]]
+                free = [j for j in range(1, 16) if j not in taken[(sc, n, f, row)]
+                        and (base | j) not in shown_idx] if base is not None else []
                 if not free:
                     nopatch['no spare entry'] += len(pts); continue
-                spare[key] = free[0]; taken[(n, f, row)].add(free[0])
+                spare[key] = free[0]; taken[(sc, n, f, row)].add(free[0])
             j = spare[key]
             got = 0
             for k in pts:
@@ -121,6 +150,9 @@ for sc, ents in pix.items():
                     continue                          # not a 4bpp background / sprite pixel of this entry (3D, 8bpp, ...)
                 if dsrender.shown(bid, r) != tuple(v >> 3 for v in idshot.getpixel((x, y))):
                     continue                          # the render doesn't match the game at this pixel: don't touch it
+                tw = tile_want[(r['vram'], r['half'])]
+                if sc not in NOMAP and tw and tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31):
+                    nopatch['tile drawn elsewhere in another colour'] += 1; continue
                 patches.add((r['vram'], r['half'], i % 16, j)); got += 1
                 spare_ip[sc][(r['idx'] & ~15) | j] = col          # the spare entry's colour, straight into palette RAM
             nopatch['not a 4bpp tile pixel'] += len(pts) - got
@@ -145,6 +177,7 @@ for sc in screens:
         continue
     o = Image.open(A + sc).convert('RGB'); d = Image.open(D + sc).convert('RGB'); dc = defs.get(cap)
     want = collections.defaultdict(collections.Counter)
+    cellw = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))   # map entry -> idx -> colours
     # the colour effects as the game sets them: from the colour-id capture (no register patches there; the AMOLED
     # build switches some off)
     engines_am = dsrender.ENGINES[0]
@@ -194,9 +227,35 @@ for sc in screens:
             if t is None:
                 ipstat['blend can not reach it'] += 1; continue
             want[px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
+            if px.get('map') is not None:
+                cellw[px['map']][px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
     ip = []
     for idx, cnt in want.items():              # every entry the screen shows (undone when the screen changes)
         ip.append((idx, cnt.most_common(1)[0][0]))
+    # map patches: a background cell (one tile map entry) whose pixels want, for one of its entries, another colour
+    # than the screen gives that entry (a tile drawn in several places, coloured differently by the owner) is pointed
+    # at a palette row of its own: one this screen doesn't show, set to the row's colours with the cell's differences
+    major = {i: c.most_common(1)[0][0] for i, c in want.items()}
+    shown_rows = {q['idx'] // 16 for half in scr for line in half for q in line if q}
+    groups, taken_rows = {}, set()
+    for maddr, ents in (sorted(cellw.items()) if sc not in NOMAP else []):
+        ov = {}
+        for i, cnt in ents.items():
+            c, k = cnt.most_common(1)[0]
+            if c != major.get(i) and k >= 2 and 2 * k > sum(cnt.values()):
+                ov[i % 16] = c
+        if not ov: continue
+        base = next(iter(ents)) & ~15; eb = base & ~255
+        key = (base, tuple(sorted(ov.items())))
+        if key not in groups:
+            free = [r for r in range(1, 16) if (eb // 16 + r) not in shown_rows and (eb // 16 + r) not in taken_rows]
+            if not free:
+                ipstat['map patch: no free row'] += 1; continue
+            r = eb // 16 + free[0]; taken_rows.add(r); groups[key] = r
+            for j in range(16):
+                ip.append((r * 16 + j, ov.get(j, major.get(base + j, dsrender.colour(b, base + j)))))
+        screens[sc].setdefault('vpatch', []).append((maddr + 1, 1, (base - eb) // 16, groups[key] - eb // 16))
+        ipstat['map patches'] += 1
     done = {i for i, _ in ip}
     ip += [(i, c) for i, c in spare_ip.get(sc, {}).items() if i not in done]
     screens[sc]['ipatch'] = ip

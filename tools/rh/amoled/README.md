@@ -39,10 +39,24 @@ in the AMOLED theme (Default is never touched):
 - `gen_rh_amoled.py` (run by `make`) builds both data files from them.
 - `strict.py` lists, per screen, every pixel the game still shows differently from the owner's picture, by cause.
 
+- Battles: `cap.py def r30b.sav battle ssave:bpre` makes a savestate right as a wild battle starts (`give4:MOVE`
+  first gives the lead Pokemon a 4th move); `sload:bpre` then replays exactly the same battle in every mode. The
+  emulator clock decides the encounter, so walking into a battle per mode gives different battles. A savestate only
+  works with the ROM build that made it: remake it after every build.
+- `bdiff.py OWNER CAP`, `why.py OWNER CAP` (wrong pixels grouped by palette entry), `allscore.py` (every screen):
+  the AMOLED capture against the owner's picture. `sigpy.py`: the screen fingerprint worked out from a dump.
+- More patch kinds: **map patches** (a background cell pointed at a palette row of its own, where the owner coloured
+  a tile differently in different places; the fingerprint hashes the maps as the game drew them) and the battle move
+  buttons (`BattleMoves` in `src/rh_theme.c`: the per-type colour table of battle overlay 6, and the Check Moves
+  buttons' type borders).
+
 Order: id captures → am captures → learn → make → am captures → learn → make … (the index patches use the AMOLED
 build's own capture) → strict.
 
 ## Known limits (being worked on)
 
 - Screens using affine / extended backgrounds (trainer card) aren't re-rendered, so get no tile / index patches.
-- The battle test scripts don't reproduce exactly the moments of the owner's battle pictures.
+- Short button press animations (battle FIGHT / BAG pressed, 67-69) are colours the game computes per frame; they
+  aren't matched yet.
+- Where a tile is drawn with one palette entry both on a border and inside a button (65 SHIFT), a few hundred pixels
+  stay off.

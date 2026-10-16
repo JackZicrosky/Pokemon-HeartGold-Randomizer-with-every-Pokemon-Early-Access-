@@ -223,6 +223,9 @@ static void ThemeCodeColours(void)
 struct RhScreenSig { u32 magic, sig, shown, patches, rows; };
 struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0 };   // (the test tools read it)
 static BOOL sTaskMade;
+static u32 *sPatch;         // the shown screen's tile patches (see TilePatches), sorted by address
+static u32 sPatchCount;
+static u32 sCmMap;          // the battle Check Moves map the theme re-pointed at its type rows (BattleMoves), or 0
 
 static u32 ScreenSig(void)
 {
@@ -240,7 +243,29 @@ static u32 ScreenSig(void)
             map = (const vu32 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
             h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
             for (i = 0; i < 0x600 / 4; i++)
-                h = (h ^ map[i]) * 16777619u;
+            {
+                u32 w = map[i], k, a = (u32)&map[i] - 0x06000000, lo = 0, hi = sPatchCount;
+                // tile patches on the map (palette numbers of cells, "map patches"): hashed as the game drew them
+                while (lo < hi)
+                {
+                    k = (lo + hi) / 2;
+                    if ((sPatch[k] & 0x7FFFFF) < a)
+                        lo = k + 1;
+                    else
+                        hi = k;
+                }
+                for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 4; lo++)
+                {
+                    u32 e = sPatch[lo], sh = (e & 3) * 8 + (e >> 23 & 1) * 4;
+                    if ((w >> sh & 15) == (e >> 28 & 15))
+                        w = (w & ~(15u << sh)) | (e >> 24 & 15) << sh;
+                }
+                if ((u32)map == sCmMap && i >= 6 * 16 && i < 18 * 16)     // (as the game drew it: palette 12)
+                    for (k = 12; k < 32; k += 16)
+                        if ((w >> k & 15) == 7 || (w >> k & 15) == 8 || (w >> k & 15) == 10)
+                            w = (w & ~(15u << k)) | 12u << k;
+                h = (h ^ w) * 16777619u;
+            }
         }
     }
     return h;
@@ -334,9 +359,6 @@ static void ReplaceRows(u32 *w, u32 *end, struct PgRow *row, u32 n, u32 bloom)
 // screen's palette version colours. Each patch: VRAM offset from 0x06000000 (bits 0-22), which half of the byte (23),
 // the entry it had (24-27), the spare one (28-31). Re-applied every frame while the screen shows (the game may redraw), undone
 // when it changes.
-static u32 *sPatch;
-static u32 sPatchCount;
-
 static void TilePatches(BOOL undo)
 {
     u32 i;
@@ -355,7 +377,26 @@ static void TilePatches(BOOL undo)
 // 3 sub OBJ): what the owner's picture needs there that the palette files can't give (colours set by code, rows
 // another screen loaded, colours under the hardware's dimming / blending, worked back). Set once when the screen
 // shows, so fades still work on them.
-static u32 *sIndexUndo;     // (idx << 16 | colour it had) for the shown screen's index patches
+static struct PgRow *sRows;  // the shown screen's row versions (pairs), kept: re-applied every frame, since the game
+static u32 sRowN, sBloom, sRowFrames;   // may load the screen's palettes after its tile maps (= after the screen counts as shown)
+
+static void ApplyRows(void)
+{
+    u32 i;
+    if (sRows == NULL || sRowFrames == 0)      // (the first second of a screen: the late loads)
+        return;
+    sRowFrames--;
+    ReplaceRows((u32 *)0x05000000, (u32 *)0x05000800, sRows, sRowN, sBloom);   // palette RAM, both screens
+    for (i = 0; i < PG_MAX_BUFS; i++)                                         // the game's palette buffers
+        if (BufLive(i))
+        {
+            ReplaceRows(sBufs[i].unfaded, sBufs[i].unfaded + sBufs[i].size / 4, sRows, sRowN, sBloom);
+            ReplaceRows(sBufs[i].faded, sBufs[i].faded + sBufs[i].size / 4, sRows, sRowN, sBloom);
+        }
+}
+
+static u32 *sIndexUndo;     // (idx << 16 | colour it had) for the shown screen's index patches, then (idx << 16 |
+                            // colour wanted): re-set every frame where the game's own colour came back (late loads)
 static u32 sIndexCount;
 static u32 *sRegs;          // register patches of the shown screen: (offset from 0x04000000 << 16 | value)
 static u32 sRegCount;
@@ -458,14 +499,8 @@ static void ShowScreen(u32 sig)
             row[2 * i + 1].target = 2 * i + 1;
             bloom |= 1u << (row[2 * i].c[0] & 31);
         }
-        ReplaceRows((u32 *)0x05000000, (u32 *)0x05000800, row, n * 2, bloom);      // palette RAM, both screens
-        for (i = 0; i < PG_MAX_BUFS; i++)                                        // the game's palette buffers
-            if (BufLive(i))
-            {
-                ReplaceRows(sBufs[i].unfaded, sBufs[i].unfaded + sBufs[i].size / 4, row, n * 2, bloom);
-                ReplaceRows(sBufs[i].faded, sBufs[i].faded + sBufs[i].size / 4, row, n * 2, bloom);
-            }
-        Heap_Free(row);
+        sRows = row; sRowN = n * 2; sBloom = bloom; sRowFrames = 60;
+        ApplyRows();
     }
     // its tile patches: after the pairs
     FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
@@ -485,13 +520,13 @@ static void ShowScreen(u32 sig)
     pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
     {
-        sIndexUndo = SafeAlloc(n * 4);
+        sIndexUndo = SafeAlloc(n * 8);
         if (sIndexUndo != NULL)
         {
-            FS_ReadFile(file, sIndexUndo, n * 4);      // one read; each entry then becomes its undo record
+            FS_ReadFile(file, sIndexUndo + n, n * 4);
             for (i = 0; i < n; i++)
             {
-                mid = sIndexUndo[i];
+                mid = sIndexUndo[n + i];
                 sIndexUndo[i] = (mid & 0x3FF0000) | GetIndex(mid >> 16 & 1023);
                 SetIndex(mid >> 16 & 1023, mid & 0x7FFF);
             }
@@ -512,6 +547,68 @@ static void ShowScreen(u32 sig)
         }
     }
     FS_CloseFile(file);
+}
+
+// Battle move buttons. Their colours come from a table in battle overlay 6 (0x0221BA00), one 16-colour row per type
+// (Normal first, then type 18 down to 1), copied into the palette by code: no palette file to theme.
+// - FIGHT screen (owner's 61): inside dark, every type (entries 1, 13, 14), patched in the table once it is loaded.
+// - Check Moves (owner's 72): the game draws all four buttons with sub BG row 12; the owner gave each button the
+//   border of its move's type (entries 1, 2, 5, 6 = the type row's 6, 7, 8, 5). Each button's type comes from its
+//   type icon (a word of its graphics, narc 8), and the button is re-pointed at a row of its own (12, 7, 8, 10:
+//   unused on that screen), a copy of row 12 with those 4 colours.
+#define OV6_MOVE_ROWS ((u16 *)0x0221BB4C)
+static const u32 sIconWord[18] = {     // word 7 of each type's icon graphics, by type
+    0xEFEFFFF8, 0xFFF33333, 0xF2EFFF22, 0xFEEFFFBB, 0xFFEFFEF4, 0xFFF55555, 0xF7777777, 0xFFEF3333, 0xEFFECCCC,
+    0xFFFAAAAA, 0xFFF22222, 0x44EF4444, 0xFFEF2222, 0xF1EFFF11, 0xFEEEFFF8, 0x55555555, 0xFFEF4EF4, 0xAEFAAAAA,
+};
+
+static void BattleMoves(void)
+{
+    static const u8 sRow[4] = { 12, 7, 8, 10 }, sFrom[4] = { 6, 7, 8, 5 }, sTo[4] = { 1, 2, 5, 6 };
+    u16 *t = OV6_MOVE_ROWS;
+    vu16 *oam = (vu16 *)0x07000400, *map;
+    u32 i, k, sh = 5 + (*(vu32 *)0x04001000 >> 20 & 3);
+    sCmMap = 0;
+    if (t[0] != 0x75CD || t[2] != 0x6AD7 || t[9] != 0x7319)      // (overlay 6 not loaded)
+        return;
+    if (t[1] == 0x7FFF)
+        for (i = 0; i < 19; i++)
+        {
+            t[16 * i + 1] = 0x1084; t[16 * i + 13] = 0x0842; t[16 * i + 14] = 0x0C63;
+        }
+    if (*(vu16 *)0x0400100C != 0x010A)                           // (sub BG2 of the battle party screens)
+        return;
+    map = (vu16 *)0x06200800;
+    for (k = 0; k < 128; k++, oam += 4)
+    {
+        u32 a0 = oam[0], a1 = oam[1], x = a1 & 511, y = a0 & 255, b, ty, w;
+        const u16 *row;
+        if ((a0 & 0x300) == 0x200 || a0 >> 14 != 1 || a1 >> 14 != 2 || y < 48 || y >= 144 || (x & 127) >= 64)
+            continue;                  // (hidden, not a 32x16 icon, not on a button)
+        w = *(vu32 *)(0x06600000 + ((oam[2] & 1023) << sh) + 28);
+        for (ty = 0; ty < 18 && sIconWord[ty] != w; ty++)
+            ;
+        if (ty == 18)
+            continue;
+        b = (y >= 96) * 2 + (x >= 128);
+        row = t + 16 * (ty ? 19 - ty : 0);
+        for (i = 0; i < 16; i++)       // (only what differs: the game's fades keep working)
+        {
+            u32 c = GetIndex(512 + 12 * 16 + i);
+            for (w = 0; w < 4; w++)
+                if (sTo[w] == i)
+                    c = row[sFrom[w]];
+            if (GetIndex(512 + sRow[b] * 16 + i) != c)
+                SetIndex(512 + sRow[b] * 16 + i, c);
+        }
+        for (i = 0; i < 6 * 16 && b != 0; i++)
+        {
+            vu16 *e = map + (6 + (b >> 1) * 6 + i / 16) * 32 + (b & 1) * 16 + i % 16;
+            if (*e >> 12 == 12)
+                *e = (u16)((*e & 0x0FFF) | sRow[b] << 12);
+        }
+        sCmMap = (u32)map;
+    }
 }
 
 static void ThemeTask(void *task, void *data)
@@ -543,6 +640,11 @@ static void ThemeTask(void *task, void *data)
             sIndexUndo = NULL;
             sIndexCount = 0;
         }
+        if (sRows != NULL)
+        {
+            Heap_Free(sRows);
+            sRows = NULL;
+        }
         if (sRegs != NULL)
         {
             Heap_Free(sRegs);
@@ -552,6 +654,14 @@ static void ThemeTask(void *task, void *data)
         ShowScreen(sig);
     }
     TilePatches(FALSE);
+    ApplyRows();
+    {
+        u32 i;
+        for (i = 0; i < sIndexCount; i++)
+            if (GetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023) != (sIndexUndo[sIndexCount + i] & 0x7FFF))
+                SetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023, sIndexUndo[sIndexCount + i] & 0x7FFF);
+    }
+    BattleMoves();
     {
         u32 i;
         for (i = 0; i < sRegCount; i++)

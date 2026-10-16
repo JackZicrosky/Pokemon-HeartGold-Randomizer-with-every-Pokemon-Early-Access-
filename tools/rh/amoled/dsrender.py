@@ -5,7 +5,7 @@
 # (for alpha blending).
 # dump layout (cap.py vram2): IO main 0x70 | IO sub 0x70 | palette 0x800 | OAM 0x800 | main BG VRAM 0x80000 |
 # sub BG 0x20000 | main OBJ 0x40000 | sub OBJ 0x20000
-import os, struct
+import struct
 O_IOM, O_IOS, O_PAL, O_OAM = 0, 0x70, 0xE0, 0xE0 + 0x800
 O_BGM = O_OAM + 0x800
 O_BGS = O_BGM + 0x80000
@@ -78,7 +78,8 @@ def render(b):
                     block = (sx // 256) + (sy // 256) * (2 if w == 512 else 1)
                     sbase = ((cnt >> 8) & 31) * 0x800 + (((disp >> 27) & 7) * 0x10000 if eng == 0 else 0)
                     cbase = ((cnt >> 2) & 15) * 0x4000 + (((disp >> 24) & 7) * 0x10000 if eng == 0 else 0)
-                    e = u16(b, vbg + sbase + block * 0x800 + (((sy % 256) // 8) * 32 + (sx % 256) // 8) * 2)
+                    moff = sbase + block * 0x800 + (((sy % 256) // 8) * 32 + (sx % 256) // 8) * 2
+                    e = u16(b, vbg + moff)
                     tile, hf, vf, pl = e & 0x3FF, e >> 10 & 1, e >> 11 & 1, e >> 12
                     px, py = sx % 8, sy % 8
                     if hf: px = 7 - px
@@ -90,7 +91,7 @@ def render(b):
                     else:
                         a = cbase + tile * 32 + py * 4 + px // 2; v = (b[vbg + a] >> (4 * (px & 1))) & 15
                         if v == 0: continue
-                        cands.append((prio, 1, bg, {'kind': 'bg', 'layer': bg, 'idx': palbg + pl * 16 + v, 'vram': vbgcpu + a, 'half': px & 1}))
+                        cands.append((prio, 1, bg, {'kind': 'bg', 'layer': bg, 'idx': palbg + pl * 16 + v, 'vram': vbgcpu + a, 'half': px & 1, 'map': vbgcpu + moff}))
                 for (k, x0, y0, w, h, a0, a1, a2) in sprites:
                     if not (x0 <= x < x0 + w and y0 <= y < y0 + h):
                         continue

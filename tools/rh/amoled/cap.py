@@ -6,15 +6,15 @@
 #   Kn / K     hold key (A B X Y L R S=start s=select U D l r) n frames; Wn wait; Tx,y touch
 #   goto:x,z   walk (play.goto); nowild
 import json, os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'test'))
+sys.path.insert(0, '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/tools/rh/test')
 import play
 from dsharness import Harness
-SP = os.environ.get('RH_AMOLED_WORK', os.path.dirname(os.path.abspath(__file__)))
+SP = '/mnt/c/Users/Zicro/AppData/Local/Temp/claude/D--AI-shit-Claude/9c5d6aa8-7796-4afc-a50d-e09085c0bb0b/scratchpad'
 OUT = SP + '/caps'
 os.makedirs(OUT, exist_ok=True)
 mode, save = sys.argv[1], sys.argv[2]
 cont = not save.endswith('@'); save = save.rstrip('@')      # SAVE@ = stay on the title screen
-h = Harness(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'test.nds'), None if save == 'none' else SP + '/' + save)
+h = Harness('/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/test.nds', None if save == 'none' else SP + '/' + save)
 m = h.emu.memory.unsigned
 h.run(600)
 if save != 'none' and cont:
@@ -77,6 +77,44 @@ for k in sys.argv[3:]:
             json.dump({'sig': sig, 'count': cnt, 'narc': [rd(8 + 2*i) for i in range(64)], 'file': [rd(136 + 2*i) for i in range(64)], 'ctx': [rd(264 + 2*i) for i in range(64)]},
                       open('%s/id_%s.json' % (OUT, n), 'w'))
             if cnt > 64: print('WARN', n, 'slots', cnt)
+    elif k.startswith('give4:'):                 # give4:MOVE  every RAM party copy: first Pokemon's empty 4th move slot gets MOVE
+        import struct
+        mv = int(k[6:])
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        def crypt(buf, seed):
+            out = bytearray(buf); x = seed
+            for i in range(0, len(buf), 2):
+                x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+                v = struct.unpack_from('<H', buf, i)[0] ^ (x >> 16)
+                struct.pack_into('<H', out, i, v)
+            return out
+        ORDER = ['ABCD','ABDC','ACBD','ACDB','ADBC','ADCB','BACD','BADC','BCAD','BCDA','BDAC','BDCA',
+                 'CABD','CADB','CBAD','CBDA','CDAB','CDBA','DABC','DACB','DBAC','DBCA','DCAB','DCBA']
+        pat = struct.pack('<I', 6); n = 0; i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                d = crypt(ram[o + 8:o + 136], chk)
+                if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
+                    order = ORDER[((pid >> 13) & 31) % 24]
+                    b = order.index('B') * 32
+                    moves = struct.unpack_from('<4H', d, b)
+                    if moves[3] == 0 and moves[0] != 0:
+                        struct.pack_into('<H', d, b + 6, mv); d[b + 8 + 3] = 20
+                        chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
+                        struct.pack_into('<H', ram, o + 6, chk2)
+                        ram[o + 8:o + 136] = crypt(d, chk2)
+                        for j in range(o + 6, o + 136): h.emu.memory.write_byte(0x02000000 + j, ram[j])
+                        n += 1
+                    print('give4 party at', hex(0x02000000 + i), 'moves', moves)
+            i = ram.find(pat, i + 1)
+        print('give4 patched', n)
+    elif k.startswith('ssave:'):                 # ssave:NAME / sload:NAME  emulator savestate (scratchpad/NAME.dst)
+        h.emu.savestate.save_file(SP + '/' + k[6:] + '.dst')
+    elif k.startswith('sload:'):
+        h.emu.savestate.load_file(SP + '/' + k[6:] + '.dst'); h.run(1)
     elif k.startswith('goto:'):
         x, z = k[5:].split(','); play.goto(h, m, int(x), int(z))
     elif k == 'nowild':

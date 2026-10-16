@@ -26,6 +26,7 @@ SCREENS = 'tools/rh/amoled/screens.json'      # per screen: fingerprint + the ow
 PAGES_OUT = 'data/rh/rh_amoled_pages.bin'
 ART = {4, 114, 194, 195, 18, 20, 69, 46, 174, 264, 81, 8, 120}
 EXTRA_UI = set()
+SKIN_FILES = [(143, 30), (143, 24), (143, 0), (144, 20), (144, 14), (145, 4), (146, 10), (146, 4)]   # Pokegear skin 1 files
 NEAR = 3            # max channel distance for "nearest recoloured colour"
 CONSISTENT = 0.75
 ANY = 0xFFFFFFFF    # entry for any screen (else: a screen context, see src/rh_theme.c)   # share of votes the most common target needs for the per-archive / global maps
@@ -114,6 +115,25 @@ def main():
             c = colours(b, (n, f))
             if c:
                 pals[(n, f)] = c
+    # Pokegear skins 2-6: the same palette layout as skin 1 (the owner's design), one file further per skin. Each entry
+    # follows the owner's change of skin 1: made neutral (black / grey / white text) = the same colour; kept = the
+    # skin's own colour; darkened or lightened = the skin's colour by the same change of lightness
+    for n, base in SKIN_FILES:
+        for k in range(1, 6):
+            f = base + k
+            if (n, base) not in pals or (n, f) not in pals:
+                continue
+            for i, b in enumerate(pals[(n, base)]):
+                if (n, base, i) not in owner or (n, f, i) in owner or i >= len(pals[(n, f)]):
+                    continue
+                a, a2, o = rgb(b), rgb(pals[(n, f)][i]), rgb(owner[(n, base, i)])
+                if owner[(n, base, i)] & 0x7FFF == b & 0x7FFF:
+                    owner[(n, f, i)] = pals[(n, f)][i]
+                elif max(o) - min(o) <= 3:
+                    owner[(n, f, i)] = owner[(n, base, i)]
+                else:
+                    r = (sum(o) + 1) / (sum(a) + 1)
+                    owner[(n, f, i)] = pack(*(round(c * r) for c in a2))
     # original colour -> owner colour maps: per file, per archive, global
     per_file = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
     per_narc = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
@@ -295,6 +315,15 @@ def pages(loaded):
     for name, sc in screens.items():
         for a, v in sc.get('regs', []):
             regs[sc['sig']][a] = v
+    # the same screen in another state (e.g. a Pokemon with 4 moves: another tile map, so another fingerprint; the
+    # same tile graphics) gets the palette versions, tile and register patches of the owner's picture. Not its index
+    # patches: they set palette entries the other state uses for something else (4th move button)
+    for name, sc in screens.items():
+        for a in sc.get('alias', []):
+            if a != sc['sig']:
+                per_sig[a] = dict(per_sig.get(sc['sig'], {}))
+                vpatch[a] = list(vpatch.get(sc['sig'], []))
+                regs[a] = dict(regs.get(sc['sig'], {}))
     sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs))
     data = bytearray()
     offs = []
@@ -303,7 +332,7 @@ def pages(loaded):
         offs.append(base_off + len(data))
         pairs = list(per_sig.get(sg, {}))
         data += struct.pack('<I', len(pairs)) + b''.join(struct.pack('<II', a, b) for a, b in pairs)
-        vp = sorted(set(vpatch.get(sg, [])))
+        vp = sorted(set(vpatch.get(sg, [])), key=lambda v: (v & 0x7FFFFF, v))     # by address (ScreenSig searches it)
         data += struct.pack('<I', len(vp)) + b''.join(struct.pack('<I', v) for v in vp)
         ip = sorted(ipatch.get(sg, {}).items())
         data += struct.pack('<I', len(ip)) + b''.join(struct.pack('<I', i << 16 | c) for i, c in ip)
