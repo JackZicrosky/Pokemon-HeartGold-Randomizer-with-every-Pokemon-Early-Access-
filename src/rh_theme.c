@@ -256,7 +256,23 @@ static u32 ScreenSig(void)
 // palettes besides palette RAM.
 #define PaletteData_SetBuffers ((void (*)(void *, u32, void *, void *, u32))(0x0200310C | 1))
 #define PG_MAX_BUFS 24
-static struct { u32 *unfaded, *faded, size, id; } sBufs[PG_MAX_BUFS];
+static struct { u32 *unfaded, *faded, size, id; u8 *pd; } sBufs[PG_MAX_BUFS];
+
+// a tracked buffer the game still uses (its PaletteData still points at it): never write into freed memory
+static BOOL BufLive(u32 i)
+{
+    return sBufs[i].unfaded != NULL && *(u32 **)(sBufs[i].pd + sBufs[i].id * 20) == sBufs[i].unfaded
+        && *(u32 **)(sBufs[i].pd + sBufs[i].id * 20 + 4) == sBufs[i].faded;
+}
+
+// heap 0 (the system heap) only when the game keeps plenty: a starved heap 0 can hang the game
+#define GF_ExpHeap_FndGetTotalFreeSize_ ((u32 (*)(u32))(0x0201ABEC | 1))
+static void *SafeAlloc(u32 size)
+{
+    if (GF_ExpHeap_FndGetTotalFreeSize_(0) < size + 0x8000)
+        return NULL;
+    return Heap_AllocAtEnd(0, size);
+}
 
 // PaletteData_AllocBuffers (arm9 0x02003120)
 void RH_PaletteData_AllocBuffers(void *plttData, u32 bufferId, u32 size, u32 heapId)
@@ -265,9 +281,10 @@ void RH_PaletteData_AllocBuffers(void *plttData, u32 bufferId, u32 size, u32 hea
     u32 i;
     PaletteData_SetBuffers(plttData, bufferId, unfaded, faded, size);
     for (i = 0; i < PG_MAX_BUFS; i++)
-        if (sBufs[i].unfaded == NULL)
+        if (sBufs[i].unfaded == NULL || !BufLive(i))
         {
             sBufs[i].unfaded = unfaded; sBufs[i].faded = faded; sBufs[i].size = size; sBufs[i].id = bufferId;
+            sBufs[i].pd = plttData;
             break;
         }
 }
@@ -349,7 +366,7 @@ static u32 GetIndex(u32 idx)
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
     u32 i, id = sBufFor[idx >> 8], off = idx & 255;
     for (i = 0; i < PG_MAX_BUFS; i++)
-        if (sBufs[i].unfaded != NULL && sBufs[i].id == id && off * 2 < sBufs[i].size)
+        if (BufLive(i) && sBufs[i].id == id && off * 2 < sBufs[i].size)
             return ((u16 *)sBufs[i].unfaded)[off];
     return ((vu16 *)0x05000000)[idx];
 }
@@ -360,7 +377,7 @@ static void SetIndex(u32 idx, u32 c)
     u32 i, id = sBufFor[idx >> 8], off = idx & 255;
     ((vu16 *)0x05000000)[idx] = (u16)c;
     for (i = 0; i < PG_MAX_BUFS; i++)
-        if (sBufs[i].unfaded != NULL && sBufs[i].id == id && off * 2 < sBufs[i].size)
+        if (BufLive(i) && sBufs[i].id == id && off * 2 < sBufs[i].size)
         {
             ((u16 *)sBufs[i].unfaded)[off] = (u16)c;
             ((u16 *)sBufs[i].faded)[off] = (u16)c;
@@ -381,18 +398,20 @@ static void ShowScreen(u32 sig)
             return;
         if (FS_ReadFile(file, hdr, 12) == 12 && hdr[0] == PG_MAGIC && hdr[1] != 0)
         {
-            sSigs = Heap_AllocAtEnd(0, hdr[1] * 8);
-            if (sSigs != NULL)
+            sSigs = SafeAlloc(hdr[1] * 8);
+            if (sSigs == NULL)
             {
-                FS_ReadFile(file, sSigs, hdr[1] * 8);
-                sSigCount = hdr[1];
-                sRowsAt = 12 + hdr[1] * 8;
+                FS_CloseFile(file);
+                return;            // (no room now: try again on the next screen)
             }
+            FS_ReadFile(file, sSigs, hdr[1] * 8);
+            sSigCount = hdr[1];
+            sRowsAt = 12 + hdr[1] * 8;
         }
         FS_CloseFile(file);
         if (sSigs == NULL)
         {
-            sSigs = (u32 *)1;      // (no list: never look again)
+            sSigs = (u32 *)1;      // (no list in the ROM: never look again)
             sSigCount = 0;
         }
     }
@@ -423,7 +442,7 @@ static void ShowScreen(u32 sig)
     hdr[1] = (sRowsAt - 12) / 8;
     if (n > PG_MAX / 2)
         n = PG_MAX / 2;
-    row = n ? Heap_AllocAtEnd(0, sizeof(struct PgRow) * n * 2) : NULL;
+    row = n ? SafeAlloc(sizeof(struct PgRow) * n * 2) : NULL;
     if (row != NULL)
     {
         // each patch: the row it finds (any version) and the version it writes, as two list items
@@ -441,7 +460,7 @@ static void ShowScreen(u32 sig)
         }
         ReplaceRows((u32 *)0x05000000, (u32 *)0x05000800, row, n * 2, bloom);      // palette RAM, both screens
         for (i = 0; i < PG_MAX_BUFS; i++)                                        // the game's palette buffers
-            if (sBufs[i].unfaded != NULL)
+            if (BufLive(i))
             {
                 ReplaceRows(sBufs[i].unfaded, sBufs[i].unfaded + sBufs[i].size / 4, row, n * 2, bloom);
                 ReplaceRows(sBufs[i].faded, sBufs[i].faded + sBufs[i].size / 4, row, n * 2, bloom);
@@ -453,7 +472,7 @@ static void ShowScreen(u32 sig)
     n = 0;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
     {
-        sPatch = Heap_AllocAtEnd(0, n * 4);
+        sPatch = SafeAlloc(n * 4);
         if (sPatch != NULL)
         {
             FS_ReadFile(file, sPatch, n * 4);
@@ -466,7 +485,7 @@ static void ShowScreen(u32 sig)
     pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
     {
-        sIndexUndo = Heap_AllocAtEnd(0, n * 4);
+        sIndexUndo = SafeAlloc(n * 4);
         if (sIndexUndo != NULL)
         {
             FS_ReadFile(file, sIndexUndo, n * 4);      // one read; each entry then becomes its undo record
@@ -485,7 +504,7 @@ static void ShowScreen(u32 sig)
     FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 16)
     {
-        sRegs = Heap_AllocAtEnd(0, n * 4);
+        sRegs = SafeAlloc(n * 4);
         if (sRegs != NULL)
         {
             FS_ReadFile(file, sRegs, n * 4);

@@ -408,7 +408,7 @@ static BOOL SaveExists(void)
 VIS(visInGame, sInGame)
 VIS(visResetRun, sInGame || SaveExists())
 VIS(visPlayerGraphics, s->playerGraphics != 0)
-VIS(visPalettes, s->paletteMode != 0)
+VIS(visNever, FALSE)       // rows of options taken out (kept in the settings code so codes / presets still load)
 VIS(visStatsRandomized, s->baseStats != 0)
 VIS(visBst, s->bstMode != 0)
 VIS(visBstPct, s->bstMode == 1)
@@ -687,11 +687,12 @@ static const struct RhRow sRows[] =
     // ---------------- Graphics ----------------
     CHOICE(SEC_GRAPHICS, 0, playerGraphics, sPlayerGraphics, "Player Character", "Play as a different character (UPR\nFVX packs): field, battle, trainer card.", NULL),
     CHOICE(SEC_GRAPHICS, 1, playerGraphicsReplace, sBoyGirl, "Character to Replace", "Which choice in Oak's intro uses them.\nBoy & Girl: you get them either way.", visPlayerGraphics),
-    HDR(SEC_GRAPHICS, "Pokémon Palettes"),
-    CHOICE(SEC_GRAPHICS, 0, paletteMode, sUR, "Pokémon Palettes", "Random: each Pokémon gets new colors\n(battle, summary and Pokédex sprites).", NULL),
-    TOGGLE(SEC_GRAPHICS, 1, paletteFollowTypes, "Follow Types", "Colors match the Pokémon's (new) types:\na Fire Chikorita turns red.", visPalettes),
-    TOGGLE(SEC_GRAPHICS, 1, paletteFollowEvos, "Follow Evolutions", "A family keeps similar colors.", visPalettes),
-    TOGGLE(SEC_GRAPHICS, 1, paletteShinyFromNormal, "Shiny From Normal", "Shiny Pokémon show their original\ncolors.", visPalettes),
+    // Pokemon Palettes: not implemented in HeartGold yet, so taken out of the menu (owner, 2026-10-16)
+    { .kind = RK_HEADER, .section = SEC_GRAPHICS, .label = "Pokémon Palettes", .visible = visNever },
+    CHOICE(SEC_GRAPHICS, 0, paletteMode, sUR, "Pokémon Palettes", "Random: each Pokémon gets new colors\n(battle, summary and Pokédex sprites).", visNever),
+    TOGGLE(SEC_GRAPHICS, 1, paletteFollowTypes, "Follow Types", "Colors match the Pokémon's (new) types:\na Fire Chikorita turns red.", visNever),
+    TOGGLE(SEC_GRAPHICS, 1, paletteFollowEvos, "Follow Evolutions", "A family keeps similar colors.", visNever),
+    TOGGLE(SEC_GRAPHICS, 1, paletteShinyFromNormal, "Shiny From Normal", "Shiny Pokémon show their original\ncolors.", visNever),
 
     // ---------------- Misc ----------------
     CHOICE(SEC_MISC, 0, uiTheme, sTheme, "UI Theme", "Dark menus and text boxes. Randomizer:\nthese colors. AMOLED: pitch black.", NULL),

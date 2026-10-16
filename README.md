@@ -71,6 +71,8 @@ This project only shares a **patch**, never the game itself. You need your own c
 * **Mom** gives you the **Mega Ring** after she explains the Pokégear. The Pokégear comes with its Map Card.
 * You can **run** everywhere from the very start. The **Apricorn Box** is in your bag from the start; the Cherrygrove
   Guide Gent's tour and the Route 30 Apricorn Box scene are skipped.
+* The **Mystery Egg** from Mr. Pokémon hatches into a random Pokémon of the wild pool (when wild Pokémon are
+  randomized).
 * **Kurt** sells his surplus Poké Balls: every kind of Ball (and, without shop randomization, his one Master Ball).
 * An **evolution item seller** in every Poké Mart, and special counters in the **Goldenrod and Celadon Dept. Stores**
   (battle gear, form items, Mega Stones, training items, Berries and snacks).
@@ -94,12 +96,15 @@ This project only shares a **patch**, never the game itself. You need your own c
 
 Working and tested in the game: the options screen, presets and Reset The Run; random starters (your rival's too),
 trainers, wild Pokémon, movesets, evolutions, field items, shops and Balance Shop Prices; the trade NPCs' text; the
-shops and key items above; the **AMOLED UI Theme** (Misc. Tweaks), made from JackZicrosky's own designs.
+shops and key items above.
 
 Built but not fully tested in the game yet: static Pokémon (gifts, legendaries, roamers), the trades themselves,
 TM / tutor moves, egg moves, move data, No Random Phone Calls.
 
-Not finished yet: the Randomizer UI Theme, custom player graphics, Pokémon palettes, Battle Style, pickup items, trainer names and
+In progress: the **AMOLED UI Theme** (Misc. Tweaks), made from JackZicrosky's own designs (most menus match them;
+some screens still differ).
+
+Not finished yet: the Randomizer UI Theme, custom player graphics, Pokémon palettes (taken out of the menu for now), Battle Style, pickup items, trainer names and
 classes, wild held items, the Safari Zone generation selector, the Goldenrod herb shop, your rival keeping the exact
 starter he stole for the whole game.
 

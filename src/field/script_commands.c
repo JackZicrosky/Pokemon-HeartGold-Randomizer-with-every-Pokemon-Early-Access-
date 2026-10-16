@@ -76,6 +76,30 @@ BOOL ScrCmd_GiveEgg(SCRIPTCONTEXT *ctx)
  *  @param ctx script context structure
  *  @return FALSE
  */
+// romhack: the gift egg (Togepi, from Mr. Pokemon) hatches into a random Pokemon of the wild pool when wild Pokemon
+// are randomized: a basic Pokemon (eggs hatch at their first stage), following the wild options (legendaries, forms).
+// species | form << 11
+static u32 RH_GiftEggSpecies(void)
+{
+    struct RhFilter f;
+    u32 r;
+    u16 sp, form;
+    if (!RH_Active() || S->wild == 0)
+        return SPECIES_TOGEPI;
+    RH_BeginSession(0xFFFF);
+    RH_FilterInit(&f);
+    if (S->wildNoLegends)
+        f.legend = 1;
+    f.allowVariants = S->wildAllowAltFormes;
+    f.stage = 1;
+    r = RH_PickWithFilter(&f, RH_Hash(SALT_STATIC_SLOT, 0xE66, 0));
+    RH_EndSession();
+    if (r == 0)
+        return SPECIES_TOGEPI;
+    RH_SpeciesKey(r, &sp, &form);
+    return sp | form << 11;
+}
+
 BOOL ScrCmd_GiveTogepiEgg(SCRIPTCONTEXT *ctx)
 {
     s32 i;
@@ -96,9 +120,12 @@ BOOL ScrCmd_GiveTogepiEgg(SCRIPTCONTEXT *ctx)
     togepi = AllocMonZeroed(11);
     ZeroMonData(togepi);
 
-    SetEggStats(togepi, SPECIES_TOGEPI, 1, profile, 3, sub_02017FE4(1, 13));
-
-    // SetMonData(togepi, MON_DATA_FORM, &form); // add form capability
+    {
+        u32 egg = RH_GiftEggSpecies(), form = egg >> 11;
+        SetEggStats(togepi, egg & 0x7FF, 1, profile, 3, sub_02017FE4(1, 13));
+        if (form != 0)
+            SetMonData(togepi, MON_DATA_FORM, &form);
+    }
 
     // ClearMonMoves(pokemon);
     // InitBoxMonMoveset(&pokemon->box);
@@ -113,11 +140,14 @@ BOOL ScrCmd_GiveTogepiEgg(SCRIPTCONTEXT *ctx)
         i = 3;
     }
 
-    moveData = MOVE_EXTRASENSORY; // add extrasensory to the togepi
-    SetMonData(togepi, MON_DATA_MOVE1 + i, &moveData);
+    if (GetMonData(togepi, MON_DATA_SPECIES, 0) == SPECIES_TOGEPI) // (romhack: only the real Togepi's special move)
+    {
+        moveData = MOVE_EXTRASENSORY; // add extrasensory to the togepi
+        SetMonData(togepi, MON_DATA_MOVE1 + i, &moveData);
 
-    pp = GetMonData(togepi, MON_DATA_MOVE1MAXPP + i, 0);
-    SetMonData(togepi, MON_DATA_MOVE1PP + i, &pp);
+        pp = GetMonData(togepi, MON_DATA_MOVE1MAXPP + i, 0);
+        SetMonData(togepi, MON_DATA_MOVE1PP + i, &pp);
+    }
 
     if (CheckScriptFlag(HIDDEN_ABILITIES_FLAG) == 1) // add HA capability
     {

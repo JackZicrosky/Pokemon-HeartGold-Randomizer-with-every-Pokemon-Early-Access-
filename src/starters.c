@@ -90,3 +90,27 @@ void LONG_CALL CreateMonSprites_HandleForm(MON_PIC *pic, u16 species, u8 gender,
         GetOtherFormPic(pic, species, 2, shiny, form);
     }
 }
+
+// romhack: ScrCmd_GetStarterChoice (arm9 0x02043938). The game stores the species of the chosen starter, and the
+// rival scripts pick Silver's team by comparing it with Chikorita / Cyndaquil (else: Totodile). With randomized
+// starters it matches neither, so he always got the Totodile-player team (and with it, sometimes the player's own
+// starter). This returns the game's own starter of the ball the player chose.
+#define ScriptReadHalfword_     ((u16 (*)(void *))(0x0203FE2C | 1))
+#define GetVarPointer_          ((u16 *(*)(void *, u16))(0x02040374 | 1))
+#define Save_VarsFlags_Get_     ((void *(*)(void *))(0x020503D0 | 1))
+#define Save_VarsFlags_GetStarter_ ((u16 (*)(void *))(0x02066AF0 | 1))
+
+BOOL LONG_CALL RH_ScrCmd_GetStarterChoice(u8 *ctx)
+{
+    void *fsys = *(void **)(ctx + 0x80);
+    u16 *ret = GetVarPointer_(fsys, ScriptReadHalfword_(ctx));
+    u16 sp = Save_VarsFlags_GetStarter_(Save_VarsFlags_Get_(*(void **)((u8 *)fsys + 0x0C)));
+    int i;
+    for (i = 0; i < 3; i++)
+        if ((StarterChoice(i) & 0x7FF) == sp) {
+            sp = sStarterChoices[i];
+            break;
+        }
+    *ret = sp;
+    return FALSE;
+}

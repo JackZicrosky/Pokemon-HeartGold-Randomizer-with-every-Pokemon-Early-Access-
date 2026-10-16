@@ -65,8 +65,7 @@ def main():
         hold = re.search(r'\.holdEffect = (\w+)', body)
         hold = hold.group(1) if hold else '0'
         shop_only = name in SHOP_ONLY
-        if '// RH price' in body:
-            continue                                 # priced for the special shops only (gen_rh_special_shops.py)
+        # (items priced by the romhack for the special shops - Mega Stones, form items... - are in the pool too)
         if pocket not in POOL_POCKETS or (price == 0 and not shop_only) or (name in BANNED and not shop_only):
             continue
         if name.endswith('_Z') or '_Z_' in name or name.endswith('_ORAS') or name.startswith('DUMMY'):

@@ -692,3 +692,4 @@ arm9 ScrCmd_RhSpecial 0204EE20 1
 
 # romhack: Prof. Elm's starter screen names the Pokemon in each ball (src/rh_starter_text.c)
 0061 RH_StarterPrintMsg 021E6D78
+arm9 RH_ScrCmd_GetStarterChoice 02043938
