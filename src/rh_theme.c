@@ -396,21 +396,25 @@ static void ApplyRows(void)
 }
 
 static u32 *sIndexUndo;     // (idx << 16 | colour it had) for the shown screen's index patches, then (idx << 16 |
-                            // colour wanted): re-set every frame where the game's own colour came back (late loads)
+                            // colour wanted): re-set every frame where the game's own colour came back (late loads),
+                            // then the colour palette RAM showed
 static u32 sIndexCount;
-static u32 *sRegs;          // register patches of the shown screen: (offset from 0x04000000 << 16 | value)
+#define IDX_MARK 0x8000     // bit 15 (unused by the hardware) on the colours the index patches write
+static u32 *sRegs;         // register patches of the shown screen: (offset from 0x04000000 << 16 | value)
 static u32 sRegCount;
 
-// the colour an entry has now: from the game's unfaded palette buffer when there is one (palette RAM may be mid-fade)
-static u32 GetIndex(u32 idx)
+// the colour an entry has now: from the game's unfaded palette buffer when there is one (palette RAM may be mid-fade);
+// GetBuf(idx, TRUE): from its faded buffer (what the game's fades copy into palette RAM)
+static u32 GetBuf(u32 idx, BOOL faded)
 {
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
     u32 i, id = sBufFor[idx >> 8], off = idx & 255;
     for (i = 0; i < PG_MAX_BUFS; i++)
         if (BufLive(i) && sBufs[i].id == id && off * 2 < sBufs[i].size)
-            return ((u16 *)sBufs[i].unfaded)[off];
+            return ((u16 *)(faded ? sBufs[i].faded : sBufs[i].unfaded))[off];
     return ((vu16 *)0x05000000)[idx];
 }
+#define GetIndex(idx) GetBuf(idx, FALSE)
 
 static void SetIndex(u32 idx, u32 c)
 {
@@ -520,15 +524,18 @@ static void ShowScreen(u32 sig)
     pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
     {
-        sIndexUndo = SafeAlloc(n * 8);
+        sIndexUndo = SafeAlloc(n * 12);
         if (sIndexUndo != NULL)
         {
             FS_ReadFile(file, sIndexUndo + n, n * 4);
             for (i = 0; i < n; i++)
             {
                 mid = sIndexUndo[n + i];
-                sIndexUndo[i] = (mid & 0x3FF0000) | GetIndex(mid >> 16 & 1023);
-                SetIndex(mid >> 16 & 1023, mid & 0x7FFF);
+                // (palette RAM gets the buffer's colour back too: palette RAM may not have it yet, the game's copy
+                // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
+                sIndexUndo[i] = (mid & 0x3FF0000) | (GetIndex(mid >> 16 & 1023) & 0x7FFF);
+                sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
+                SetIndex(mid >> 16 & 1023, (mid & 0x7FFF) | IDX_MARK);
             }
         }
         sIndexCount = sIndexUndo != NULL ? n : 0;
@@ -635,7 +642,16 @@ static void ThemeTask(void *task, void *data)
         {
             u32 i;
             for (i = sIndexCount; i-- > 0;)
-                SetIndex(sIndexUndo[i] >> 16 & 1023, sIndexUndo[i] & 0x7FFF);
+            {
+                // the game's buffers get what they had, palette RAM what it showed: the game can load colours
+                // straight into palette RAM (the battle HP boxes), leaving a stale buffer (the intro's sky blue).
+                // Only where the theme's colour (IDX_MARK) is still there: what the game loaded since (the next
+                // screen's palettes, often loaded before its tile maps make it count as shown) stays
+                u32 idx = sIndexUndo[i] >> 16 & 1023, ram = ((vu16 *)0x05000000)[idx];
+                if (GetIndex(idx) & IDX_MARK)
+                    SetIndex(idx, sIndexUndo[i] & 0x7FFF);
+                ((vu16 *)0x05000000)[idx] = (u16)(ram & IDX_MARK ? sIndexUndo[2 * sIndexCount + i] : ram);
+            }
             Heap_Free(sIndexUndo);
             sIndexUndo = NULL;
             sIndexCount = 0;
@@ -658,8 +674,25 @@ static void ThemeTask(void *task, void *data)
     {
         u32 i;
         for (i = 0; i < sIndexCount; i++)
-            if (GetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023) != (sIndexUndo[sIndexCount + i] & 0x7FFF))
-                SetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023, sIndexUndo[sIndexCount + i] & 0x7FFF);
+        {
+            // the theme writes its colours with IDX_MARK: an entry without it was loaded by the game after the screen
+            // showed (even in the very colour wanted), and its new colour is the one to put back on undo, not what
+            // the entry held before the load (e.g. the battle intro's sky under the HP boxes)
+            u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = (sIndexUndo[sIndexCount + i] & 0x7FFF) | IDX_MARK;
+            u32 c = GetIndex(idx);
+            if (c != want)
+            {
+                sIndexUndo[i] = idx << 16 | (c & 0x7FFF);
+                sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
+                SetIndex(idx, want);
+            }
+            else if ((c = ((vu16 *)0x05000000)[idx]) != want && c != GetBuf(idx, TRUE))
+            {
+                // loaded straight into palette RAM (not a fade step: those copy the faded buffer)
+                sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
+                ((vu16 *)0x05000000)[idx] = (u16)want;
+            }
+        }
     }
     BattleMoves();
     {

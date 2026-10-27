@@ -9,13 +9,22 @@ import json, os, sys
 sys.path.insert(0, '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/tools/rh/test')
 import play
 from dsharness import Harness
-SP = '/mnt/c/Users/Zicro/AppData/Local/Temp/claude/D--AI-shit-Claude/9c5d6aa8-7796-4afc-a50d-e09085c0bb0b/scratchpad'
+SP = '/root/amw'
 OUT = SP + '/caps'
 os.makedirs(OUT, exist_ok=True)
 mode, save = sys.argv[1], sys.argv[2]
 cont = not save.endswith('@'); save = save.rstrip('@')      # SAVE@ = stay on the title screen
 h = Harness('/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/test.nds', None if save == 'none' else SP + '/' + save)
 m = h.emu.memory.unsigned
+if os.environ.get('RTC'):                       # RTC="YYYY-MM-DD HH:MM": a fixed clock (time of day, and the same RNG every run)
+    from desmume.emulator import DeSmuME_Date, StartFrom
+    import re
+    y, mo, d, hh, mi = map(int, re.findall(r'\d+', os.environ['RTC']))
+    blank = '/tmp/cap_blank_%d.sav' % os.getpid()
+    if save == 'none':
+        open(blank, 'wb').write(bytes([255]) * 0x80000)
+    h.emu.movie.record('/tmp/cap_%d.dsm' % os.getpid(), 'rh', StartFrom.START_SRAM,
+                       blank if save == 'none' else SP + '/' + save, DeSmuME_Date(y, mo, d, hh, mi, 0, 0))
 h.run(600)
 if save != 'none' and cont:
     h.hold('A', 4); h.run(300); h.hold('A', 4); h.run(300); h.hold('A', 4); h.run(500)
@@ -64,7 +73,7 @@ for k in sys.argv[3:]:
             else:
                 print('WARN', n, 'screen never matched the id capture')
         h.emu.screenshot().save('%s/%s_%s.png' % (OUT, mode, n))
-        if mode in ('id', 'am'):                  # registers, palettes, OAM, BG + OBJ VRAM (dsrender.py)
+        if mode in ('id', 'am') or n.startswith('st'):   # registers, palettes, OAM, BG + OBJ VRAM (dsrender.py)
             rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
             open('%s/%s_%s.vram2' % (OUT, mode, n), 'wb').write(io_regs() + rd(0x05000000, 0x800)
                 + rd(0x07000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000) + rd(0x06400000, 0x40000) + rd(0x06600000, 0x20000))
@@ -111,6 +120,33 @@ for k in sys.argv[3:]:
                     print('give4 party at', hex(0x02000000 + i), 'moves', moves)
             i = ram.find(pat, i + 1)
         print('give4 patched', n)
+    elif k.startswith('rec:'):                   # rec:NAME[:FRAMES[:INPUT]]  every frame for FRAMES frames (default 300 = 5 s)
+        # INPUT (held for the first 6 frames): a key (A B X Y U D l r S s L R) or Tx_y (touch). Frames identical to an
+        # earlier one of the same recording are stored once; index.json gives the stored frame of every frame.
+        import hashlib
+        parts = k.split(':'); name = parts[1]; nfr = int(parts[2]) if len(parts) > 2 else 300
+        inp = parts[3] if len(parts) > 3 else None
+        d = '%s/rec/%s_%s' % (SP, mode, name); os.makedirs(d, exist_ok=True)
+        seen = {}; index = []
+        for fi in range(nfr):
+            if inp and fi == 0:
+                if inp[0] == 'T':
+                    x, y = inp[1:].split('_'); h.emu.input.touch_set_pos(int(x), int(y))
+                else:
+                    h.emu.input.keypad_add_key(__import__('desmume.controls', fromlist=['keymask']).keymask(__import__('dsharness').KEYMAP[inp]))
+            if inp and fi == 6:
+                if inp[0] == 'T':
+                    h.emu.input.touch_release()
+                else:
+                    h.emu.input.keypad_rm_key(__import__('desmume.controls', fromlist=['keymask']).keymask(__import__('dsharness').KEYMAP[inp]))
+            h.run(1)
+            img = h.emu.screenshot()
+            hs = hashlib.md5(img.tobytes()).hexdigest()
+            if hs not in seen:
+                seen[hs] = 'f%03d.png' % fi; img.save(d + '/' + seen[hs])
+            index.append(seen[hs])
+        json.dump({'mode': mode, 'input': inp, 'frames': index}, open(d + '/index.json', 'w'))
+        print('rec', name, nfr, 'frames', len(seen), 'distinct')
     elif k.startswith('ssave:'):                 # ssave:NAME / sload:NAME  emulator savestate (scratchpad/NAME.dst)
         h.emu.savestate.save_file(SP + '/' + k[6:] + '.dst')
     elif k.startswith('sload:'):
@@ -131,6 +167,8 @@ for k in sys.argv[3:]:
     elif k[0] == 'P':                             # Px,y: touch and stay pressed (button pressed look)
         x, y = k[1:].split(',')
         h.emu.input.touch_set_pos(int(x), int(y)); h.run(6)
+    elif k.startswith('tdown:'):                  # tdown:x,y  touch and stay pressed, no frames run
+        x, y = k[6:].split(','); h.emu.input.touch_set_pos(int(x), int(y))
     elif k == 'rel':
         h.emu.input.touch_release(); h.run(20)
     elif k.startswith('paldump:'):              # paldump:NAME  all 4 palette RAMs (2 KB) -> caps/NAME.pal
@@ -150,6 +188,8 @@ for k in sys.argv[3:]:
         rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
         blob = rd(0x04000000, 0x70) + rd(0x04001000, 0x70) + rd(0x05000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000)
         open('%s/%s.vram' % (OUT, k[5:]), 'wb').write(blob)
+    elif k.startswith('ramdump:'):              # ramdump:NAME  main RAM (4 MB) -> caps/NAME.ram
+        open('%s/%s.ram' % (OUT, k[8:]), 'wb').write(bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))[:0x400000])
     elif k == 'sigdbg':
         ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
         print('sigdbg', [int.from_bytes(ram[j + 4 * i:j + 4 * i + 4], 'little') for i in range(1, 5)])

@@ -26,6 +26,9 @@ SCREENS = 'tools/rh/amoled/screens.json'      # per screen: fingerprint + the ow
 PAGES_OUT = 'data/rh/rh_amoled_pages.bin'
 ART = {4, 114, 194, 195, 18, 20, 69, 46, 174, 264, 81, 8, 120}
 EXTRA_UI = set()
+# files of filled archives that are not UI: never recoloured unless the owner did (battle backgrounds and platforms,
+# one palette per terrain and time of day: the owner kept them)
+NOFILL = {(7, f) for f in range(246)}
 SKIN_FILES = [(143, 30), (143, 24), (143, 0), (144, 20), (144, 14), (145, 4), (146, 10), (146, 4)]   # Pokegear skin 1 files
 NEAR = 3            # max channel distance for "nearest recoloured colour"
 CONSISTENT = 0.75
@@ -225,7 +228,7 @@ def main():
         for i, o in enumerate(c):
             if (n, f, i) in owner:
                 new[i] = owner[(n, f, i)] | (o & 0x8000); stats['owner'] += 1
-            elif n in fill_archives:
+            elif n in fill_archives and (n, f) not in NOFILL:
                 new[i] = fill(n, f, o & 0x7FFF, i) | (o & 0x8000); stats['filled' if new[i] != o else 'kept'] += 1
         # every palette file outside the art archives (the colour-id mode uses the list too), and art files the owner
         # changed

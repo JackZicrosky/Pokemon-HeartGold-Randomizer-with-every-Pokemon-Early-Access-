@@ -14,6 +14,25 @@ def palette(n, f):
     b = _files[n][f]
     return narc.colors(b) if b[:4] == b'RLCN' else []
 def c5(p): return (p[0] >> 3) | (p[1] >> 3) << 5 | (p[2] >> 3) << 10
+import pickle
+STATIC = pickle.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static_tiles.pkl'), 'rb'))
+def static_tile(dump, addr):
+    """the 4bpp tile at VRAM address addr (in a vram2 dump) is graphics from a ROM file, not drawn at runtime (text,
+    numbers, Pokemon sprites), and not one colour (blank text-window tiles get drawn into)"""
+    import dsrender as R
+    for base, off, size in ((0x06000000, R.O_BGM, 0x80000), (0x06200000, R.O_BGS, 0x20000),
+                            (0x06400000, R.O_OBJM, 0x40000), (0x06600000, R.O_OBJS, 0x20000)):
+        if base <= addr < base + size:
+            o = off + ((addr - base) & ~31); t = dump[o:o + 32]
+            return t in STATIC and len({v & 15 for v in t} | {v >> 4 for v in t}) > 1
+    return False
+ART_ARCHIVES = {4, 114, 194, 195, 18, 20, 69, 46, 174, 264, 81, 8, 120, 6}
+def ui_file(n, f, learned_files):
+    """palette files the AMOLED theme may set per screen: UI files; art (Pokemon, trainers, battle backgrounds) only
+    where the owner recoloured it"""
+    if n == 7 and f < 246: return False                   # battle backgrounds / platforms, per terrain and time
+    if n in ART_ARCHIVES: return (n, f) in learned_files
+    return True
 def o1(v): return v >> 3 if v % 8 == 0 else min(31, round(v * 31 / 255))   # screenshot values are x*8; the owner's own colours round
 def own5(p): return o1(p[0]) | o1(p[1]) << 5 | o1(p[2]) << 10
 defs = {os.path.basename(f)[4:-4]: Image.open(f).convert('RGB') for f in glob.glob(CAPS + 'def_*.png')
@@ -32,7 +51,7 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'e_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp1', '68_battle_bag_pressed.png': 'e_bp1'}
+FORCE = {'61_battle_moves.png': 'e_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'e_bp0'}
 for f in sorted(glob.glob(A + '[0-9]*.png')):
     name = os.path.basename(f)
     if not os.path.exists(D + name): continue
@@ -65,7 +84,7 @@ for f in sorted(glob.glob(A + '[0-9]*.png')):
             n, fl = log['narc'][slot], log['file'][slot]
             e = (n, fl & 0xFFF, (fl >> 12) * 256 + idx)
             ctx = log['ctx'][slot]
-            if n >= 320: e = None
+            if n >= 320 or n in (4, 6) or (n == 7 and fl & 0xFFF < 246): e = None    # Pokemon / trainer art, battle backgrounds
         if e:
             try:
                 pal = palette(e[0], e[1])
@@ -101,6 +120,7 @@ for (n, f, i, ctx) in cvotes:
 spare = {}                                           # (narc, file, row, colour) -> spare index in the row
 taken = collections.defaultdict(set)                 # (narc, file, row) -> spare indices handed out
 nopatch = collections.Counter()
+RUNTIME_MAJOR = {}                                  # entry -> colour of its runtime-drawn pixels (text)
 spare_ip = collections.defaultdict(dict)             # screen -> {palette RAM index: colour} for the spare entries
 for sc, ents in pix.items():
     if sc not in screens: continue
@@ -123,7 +143,21 @@ for sc, ents in pix.items():
                 op = o_img.getpixel((xx, yy)); tile_want[(q['vram'], q['half'])][(o1(op[0]), o1(op[1]), o1(op[2]))] += 1
     for (n, f, i, ctx), cols in ents.items():
         if len(cols) < 2: continue
-        major = max(cols.items(), key=lambda kv: len(kv[1]))[0]
+        # the colour the entry keeps: the one drawn on runtime tiles (text, numbers: tile patches can't move those)
+        # if any, else the one most pixels have; the other colours' pixels (on ROM graphics) move to spare entries
+        def runtime_px(pts):
+            n_ = 0
+            for k in pts:
+                q = scr[k // 256 // 192][k // 256 % 192][k % 256]
+                if q is not None and q.get('half') is not None and not static_tile(bid, q['vram']): n_ += 1
+            return n_
+        rt = {col: runtime_px(pts) for col, pts in cols.items()}
+        if max(rt.values()) > 0:
+            major = max(cols, key=lambda c: (rt[c], len(cols[c])))
+            screens[sc]['cols']['%d,%d,%d@%d' % (n, f, i, ctx)] = major
+            RUNTIME_MAJOR['%d,%d,%d@%d' % (n, f, i, ctx)] = major
+        else:
+            major = max(cols.items(), key=lambda kv: len(kv[1]))[0]
         row = i // 16
         for col, pts in cols.items():
             if col == major: continue
@@ -153,6 +187,8 @@ for sc, ents in pix.items():
                 tw = tile_want[(r['vram'], r['half'])]
                 if sc not in NOMAP and tw and tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31):
                     nopatch['tile drawn elsewhere in another colour'] += 1; continue
+                if not static_tile(bid, r['vram']):
+                    nopatch['runtime-drawn tile (text, numbers, sprites)'] += 1; continue
                 patches.add((r['vram'], r['half'], i % 16, j)); got += 1
                 spare_ip[sc][(r['idx'] & ~15) | j] = col          # the spare entry's colour, straight into palette RAM
             nopatch['not a 4bpp tile pixel'] += len(pts) - got
@@ -165,6 +201,7 @@ print('tile patches:', sum(len(s_['vpatch']) for s_ in screens.values() if 'vpat
 # palette RAM entry and its colour effect; the colour that entry needs for the owner's pixel (worked back through
 # dimming / blending); where the AMOLED build doesn't have it, a patch (most pixels of an entry decide)
 ipstat = collections.Counter()
+learned_files = {(n, f) for (n, f, i, ctx) in cvotes}
 for sc in screens:
     cap = MATCH[sc]
     vf = CAPS + 'am_' + cap + '.vram2'
@@ -178,6 +215,9 @@ for sc in screens:
     o = Image.open(A + sc).convert('RGB'); d = Image.open(D + sc).convert('RGB'); dc = defs.get(cap)
     want = collections.defaultdict(collections.Counter)
     cellw = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))   # map entry -> idx -> colours
+    cellv = {}
+    idlog = json.load(open(CAPS + 'id_' + cap + '.json')) if os.path.exists(CAPS + 'id_' + cap + '.json') else None
+    idshot_ip = Image.open(CAPS + 'id_' + cap + '.png').convert('RGB') if idlog is not None else None
     # the colour effects as the game sets them: from the colour-id capture (no register patches there; the AMOLED
     # build switches some off)
     engines_am = dsrender.ENGINES[0]
@@ -188,6 +228,17 @@ for sc in screens:
         if dsrender.ENGINES[0] != engines_am:
             scr_id = None
         dsrender.ENGINES[0] = engines_am
+    # every palette row the colour-id capture shows, and the palette file it holds (rows of art files are never patched)
+    rowfile = {}
+    if scr_id is not None and os.path.exists(CAPS + 'id_' + cap + '.json'):
+        _log = json.load(open(CAPS + 'id_' + cap + '.json')); _im = Image.open(CAPS + 'id_' + cap + '.png').convert('RGB')
+        for yy in range(384):
+            for xx in range(256):
+                q = scr_id[yy // 192][yy % 192][xx]
+                if q is None: continue
+                sl = c5(_im.getpixel((xx, yy))) >> 8
+                if sl < min(64, _log['count']):
+                    rowfile[q['idx'] // 16] = (_log['narc'][sl], _log['file'][sl] & 0xFFF)
     def game_effect(px, x, y):
         if scr_id is None: return px
         q = scr_id[y // 192][y % 192][x]
@@ -226,8 +277,13 @@ for sc in screens:
             t = dsrender.needed(b, px, ow)
             if t is None:
                 ipstat['blend can not reach it'] += 1; continue
+            if idlog is not None:
+                ic = c5(idshot_ip.getpixel((x, y))); slot = ic >> 8
+                if slot < min(64, idlog['count']) and not ui_file(idlog['narc'][slot], idlog['file'][slot] & 0xFFF, learned_files):
+                    ipstat['not a UI palette (art, battle background)'] += 1; continue
             want[px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
             if px.get('map') is not None:
+                cellv[px['map']] = px.get('vram')
                 cellw[px['map']][px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
     ip = []
     for idx, cnt in want.items():              # every entry the screen shows (undone when the screen changes)
@@ -245,10 +301,13 @@ for sc in screens:
             if c != major.get(i) and k >= 2 and 2 * k > sum(cnt.values()):
                 ov[i % 16] = c
         if not ov: continue
+        if cellv.get(maddr) is None or not static_tile(b, cellv[maddr]):
+            ipstat['map patch: runtime-drawn tile'] += 1; continue
         base = next(iter(ents)) & ~15; eb = base & ~255
         key = (base, tuple(sorted(ov.items())))
         if key not in groups:
-            free = [r for r in range(1, 16) if (eb // 16 + r) not in shown_rows and (eb // 16 + r) not in taken_rows]
+            free = [r for r in range(1, 16) if (eb // 16 + r) not in shown_rows and (eb // 16 + r) not in taken_rows
+                    and (eb // 16 + r) not in rowfile]
             if not free:
                 ipstat['map patch: no free row'] += 1; continue
             r = eb // 16 + free[0]; taken_rows.add(r); groups[key] = r
@@ -256,12 +315,17 @@ for sc in screens:
                 ip.append((r * 16 + j, ov.get(j, major.get(base + j, dsrender.colour(b, base + j)))))
         screens[sc].setdefault('vpatch', []).append((maddr + 1, 1, (base - eb) // 16, groups[key] - eb // 16))
         ipstat['map patches'] += 1
+    ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files)]
     done = {i for i, _ in ip}
     ip += [(i, c) for i, c in spare_ip.get(sc, {}).items() if i not in done]
     screens[sc]['ipatch'] = ip
     ipstat['patches'] += len(ip)
 print('palette index patches:', dict(ipstat))
 json.dump(screens, open('screens.json', 'w'))
+# entries whose text pixels the owner coloured differently from other pixels: every screen (file level) gets the text's
+for k, c in RUNTIME_MAJOR.items():
+    out[k] = {str(c): 10 ** 6}
+json.dump(out, open(sys.argv[1], 'w'))
 json.dump(screens, open('screens.json', 'w'))
 json.dump({name: cap for name, cap in MATCH.items()}, open('matches.json', 'w'))
 print(len(out), 'entries')
