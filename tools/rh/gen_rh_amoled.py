@@ -353,6 +353,59 @@ def pages(loaded):
              sum(len(v) for v in ipatch.values()), skipped))
 
 
+HPART_OUT = 'data/rh/rh_hpart.bin'
+HP_GAUGES = [188, 191, 194, 197, 200, 203, 253, 256]    # narc 8: the battle HP-box sprites (NCGR, 2 halves of 64x64)
+
+
+def hp_art():
+    """data/rh/rh_hpart.bin (read by src/battle/rh_hptext.c): for each HP-box sprite half, a 64x64 bit mask of its art
+    pixels in entries 14 / 2 that are not text. The box's text (name, gender, level, HP numbers) is drawn in those
+    entries too; the art's own text (the "/" between the HP numbers) = small groups of 14/2 next to only the text
+    backgrounds (15 under the name, 3 around the numbers), not touching the sprite's edge.
+    Layout: 'RHHP', count, then per half: u16 file, u16 half, 512 bytes (bit x of byte (y * 64 + x) / 8)."""
+    ms = members(ROOT + 'a/0/0/8')
+    out = bytearray(b'RHHP' + struct.pack('<I', len(HP_GAUGES) * 2))
+    for f in HP_GAUGES:
+        b = ms[f]
+        if b[:1] == b'\x10':
+            b = lz(b)
+        for h in (0, 1):
+            chr_ = b[0x30 + h * 0x800:0x30 + (h + 1) * 0x800]
+
+            def nib(x, y):
+                t, p = (y // 8) * 8 + x // 8, (y % 8) * 8 + x % 8
+                v = chr_[t * 32 + p // 2]
+                return v >> 4 if p & 1 else v & 15
+            px = [[nib(x, y) for x in range(64)] for y in range(64)]
+            mask = bytearray(512)
+            seen = set()
+            for y in range(64):
+                for x in range(64):
+                    if px[y][x] not in (2, 14) or (x, y) in seen:
+                        continue
+                    group, todo, text = [], [(x, y)], True
+                    seen.add((x, y))
+                    while todo:
+                        cx, cy = todo.pop()
+                        group.append((cx, cy))
+                        for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                            if not (0 <= nx < 64 and 0 <= ny < 64):
+                                text = False
+                            elif px[ny][nx] in (2, 14):
+                                if (nx, ny) not in seen:
+                                    seen.add((nx, ny))
+                                    todo.append((nx, ny))
+                            elif px[ny][nx] not in (15, 3):
+                                text = False
+                    if not text:
+                        for gx, gy in group:
+                            mask[(gy * 64 + gx) >> 3] |= 1 << (gx & 7)
+            out += struct.pack('<HH', f, h) + mask
+    open(HPART_OUT, 'wb').write(out)
+    print('%s: %d HP-box sprite halves' % (HPART_OUT, len(HP_GAUGES) * 2))
+
+
 if __name__ == '__main__':
     os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+    hp_art()
     sys.exit(main())

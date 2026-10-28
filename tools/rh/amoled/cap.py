@@ -188,6 +188,9 @@ for k in sys.argv[3:]:
         rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
         blob = rd(0x04000000, 0x70) + rd(0x04001000, 0x70) + rd(0x05000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000)
         open('%s/%s.vram' % (OUT, k[5:]), 'wb').write(blob)
+    elif k.startswith('peek:'):                   # peek:ADDR[,COUNT]  print COUNT bytes (hex) at ADDR
+        a, _, c = k[5:].partition(',')
+        print('peek', k[5:], bytes(h.emu.memory.read(int(a, 16), int(a, 16) + int(c or '4') - 1, 1, False)).hex())
     elif k.startswith('ramdump:'):              # ramdump:NAME  main RAM (4 MB) -> caps/NAME.ram
         open('%s/%s.ram' % (OUT, k[8:]), 'wb').write(bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))[:0x400000])
     elif k == 'sigdbg':

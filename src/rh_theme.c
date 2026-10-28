@@ -219,7 +219,9 @@ static void ThemeCodeColours(void)
 // Screen fingerprint: some screens show a palette that another screen loaded (Pokedex pages, battle menus, bag
 // pockets...), and the owner coloured it differently on each. A hash of the background tile maps of both screens
 // says which one is showing; it is worked out every frame (AMOLED only) by a task on the main queue.
-#define SysTask_CreateOnMainQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E320 | 1))
+// the "vwait" queue: run by the main loop right after the screen's vertical-blank callback (which copies the game's
+// palettes, tile maps and sprites to the hardware), so the theme's changes are in before the frame is drawn
+#define SysTask_CreateOnVWaitQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E374 | 1))
 struct RhScreenSig { u32 magic, sig, shown, patches, rows; };
 struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0 };   // (the test tools read it)
 static BOOL sTaskMade;
@@ -697,16 +699,44 @@ static void ThemeTask(void *task, void *data)
     BattleMoves();
     {
         u32 i;
+        const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's HP-box text (src/battle/rh_hptext.c)
         for (i = 0; i < sRegCount; i++)
             *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+        if (hp[0] == 0x54504852 && hp[1] == 0x31545854)
+            ((void (*)(void))hp[2])();
     }
+}
+
+// GX_LoadOAM (arm9 0x020CFDC8) and the sprite library's main-screen OAM loader (0x020B78C4, through a pointer table),
+// both (source, offset, size), hooked (armhooks): the copy (16-bit: it can be a single entry's attribute), then the
+// battle HP-box text overlays back in (src/battle/rh_hptext.c), right after every copy of the game's sprites
+void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
+{
+    const u32 *hp = (const u32 *)0x023C4000;
+    vu16 *dst = (vu16 *)(0x07000000 + offset);
+    const u16 *from = (const u16 *)src;
+    for (size >>= 1; size != 0; size--)
+        *dst++ = *from++;
+    if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
+        ((void (*)(void))hp[4])();     // (only the overlays' positions: see src/battle/rh_hptext.c RH_HpSync)
+}
+
+void RH_LoadOamMain(const u32 *src, u32 offset, u32 size)
+{
+    const u32 *hp = (const u32 *)0x023C4000;
+    vu16 *dst = (vu16 *)(0x07000000 + offset);
+    const u16 *from = (const u16 *)src;
+    for (size >>= 1; size != 0; size--)
+        *dst++ = *from++;
+    if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
+        ((void (*)(void))hp[3])();
 }
 
 static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
 {
     if (!sTaskMade)
     {
-        sTaskMade = SysTask_CreateOnMainQueue(ThemeTask, NULL, 0) != NULL;
+        sTaskMade = SysTask_CreateOnVWaitQueue(ThemeTask, NULL, 0) != NULL;
     }
     u32 theme, size, start, ctx;
     if (data == NULL || data[0] != 'R' || data[1] != 'L' || data[2] != 'C' || data[3] != 'N')

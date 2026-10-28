@@ -17,3 +17,18 @@ mov pc, r1
 
 NNSi_SndArcLoadBank_return_address:
 .word 0
+
+@ romhack: the OAM loaders' hook (armhooks), ARM code: on to the Thumb function (src/rh_theme.c)
+.global RH_LoadOamMain_arm
+RH_LoadOamMain_arm:
+ldr ip, =RH_LoadOamMain
+bx ip
+
+.pool
+
+.global RH_LoadOamCopy_arm
+RH_LoadOamCopy_arm:
+ldr ip, =RH_LoadOamCopy
+bx ip
+
+.pool

@@ -362,6 +362,8 @@ all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin
 	$(PYTHON) tools/rh/gen_rh_amoled.py
 	cp data/rh/rh_amoled.bin $(FILESYS)/data/rh_amoled.bin
 	cp data/rh/rh_amoled_pages.bin $(FILESYS)/data/rh_amoled_pages.bin
+	cp data/rh/rh_hpart.bin $(FILESYS)/data/rh_hpart.bin
+	grep -qx "/data/rh_hpart.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_hpart.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_amoled_pages.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled_pages.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_amoled.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled.bin" >> $(BASE)_dsrom/path_order.txt
 	@echo "Making ROM..."

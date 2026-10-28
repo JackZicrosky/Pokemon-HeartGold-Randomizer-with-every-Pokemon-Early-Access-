@@ -4,3 +4,8 @@
 
 # arm hook at func+4
 arm9 NNSi_SndArcLoadBank_hook 020CA058 5
+
+# romhack: AMOLED theme, battle HP-box text overlays (src/rh_theme.c RH_LoadOamMain): GX_LoadOAM and the sprite
+# library's main-screen OAM loader (called through a pointer table)
+arm9 RH_LoadOamMain_arm 020CFDC8 12
+arm9 RH_LoadOamCopy_arm 020B78C4 12
