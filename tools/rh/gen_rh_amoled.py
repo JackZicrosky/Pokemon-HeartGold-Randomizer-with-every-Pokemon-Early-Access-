@@ -250,13 +250,14 @@ def main():
         mask[key >> 21] |= 1 << (key >> 16 & 31)
     data = bytearray()
     offs = []
-    base = 48 + 12 * len(entries)
+    base = 48 + 16 * len(entries)
     for key, ctx, start, new in entries:
         offs.append(base + len(data))
-        data += struct.pack('<II', len(new), start) + struct.pack('<%dH' % len(new), *new)
-    out = bytearray(b'RHA3' + struct.pack('<I', len(entries)) + struct.pack('<10I', *mask))
-    for (key, ctx, _, _), off in zip(entries, offs):
-        out += struct.pack('<III', key, ctx, off)
+        data += struct.pack('<%dH' % len(new), *new)
+    out = bytearray(b'RHA4' + struct.pack('<I', len(entries)) + struct.pack('<10I', *mask))
+    for (key, ctx, start, new), off in zip(entries, offs):
+        assert len(new) < 0x10000 and start < 0x10000
+        out += struct.pack('<IIII', key, ctx, off, len(new) | start << 16)
     out += data
     open(OUT, 'wb').write(out)
     pages(loaded)

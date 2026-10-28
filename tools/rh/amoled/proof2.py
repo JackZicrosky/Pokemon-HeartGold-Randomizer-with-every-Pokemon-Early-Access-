@@ -5,7 +5,7 @@
 #              colours); proven when situation 0 and AMOLED <= 9 (99.99%)
 # Writes proof/NAME.png for pictures not proven: owner picture | best AMOLED frame | its wrong pixels in red.
 import json, os, sys, glob
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageFilter
 A = 'D:/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots - AMOLED/'
 D = 'D:/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots/'
 M = json.load(open(sys.argv[1] if len(sys.argv) > 1 else 'matches.json'))
@@ -25,10 +25,35 @@ for name in sorted(M):
     if not (frames(dd) and frames(ad)):
         print('%-40s %-14s no recording' % (name, cap)); continue
     dref = q5(Image.open(D + name).convert('RGB')); own = Image.open(A + name).convert('RGB').point(lambda v: o1(v) << 3)
-    sit = min(ndiff(dref, q5(Image.open(f).convert('RGB')))[0] for f in frames(dd))
+    # the battles the owner's pictures come from can be recreated except the wild Pokemon's gender (the game rolls it):
+    # the enemy box's gender symbol is the one place allowed to differ (owner: species / gender / level vary)
+    battle = name[:2].isdigit() and 59 <= int(name[:2]) <= 72
+    GENDER = {(31, 11, 5), (6, 12, 27)}               # the Default ♀ / ♂ symbol colours (5-bit)
+    def gmask(*ims):
+        # pixels within 2 of a gender symbol pixel (top screen) in any of the Default pictures: 0 there, 255 elsewhere
+        g = Image.new('L', (256, 384), 0); gp = g.load()
+        for im in ims:
+            px = im.load()
+            for y in range(192):
+                for x in range(256):
+                    if tuple(v >> 3 for v in px[x, y]) in GENDER:
+                        gp[x, y] = 255
+        return ImageChops.invert(g.filter(ImageFilter.MaxFilter(5)))
+    dmask = {}
+    def masked(a, b, key=None):
+        n, m = ndiff(a, b)
+        if battle and key is not None:
+            m = ImageChops.multiply(m, dmask[key]); n = m.histogram()[255]
+        return n, m
+    sits = []
+    for f in frames(dd):
+        im = q5(Image.open(f).convert('RGB'))
+        if battle: dmask[f] = gmask(dref, im)
+        sits.append((masked(dref, im, f)[0], f))
+    sit, dbest = min(sits)
     best = None
     for f in frames(ad):
-        w, m = ndiff(own, q5(Image.open(f).convert('RGB')))
+        w, m = masked(own, q5(Image.open(f).convert('RGB')), dbest)
         if best is None or w < best[0]:
             best = (w, m, f)
     wrong, m, f = best

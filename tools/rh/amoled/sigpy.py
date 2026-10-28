@@ -13,10 +13,16 @@ def sig(b, kind, mask):
             cnt = struct.unpack_from('<H', io[eng], 8 + 2 * bg)[0]
             base = (bgs if eng else bgm + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800
             h = ((h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619) & 0xFFFFFFFF
-            for i in range(0x600 // 4):
-                w = struct.unpack_from('<I', b, base + 4 * i)[0]
-                if mask: w &= 0x0FFF0FFF
-                h = ((h ^ w) * 16777619) & 0xFFFFFFFF
+            # each map's own hash (tile numbers as steps from the cell before's), then into the screen's
+            hb, prev = 2166136261, 0
+            for i in range(0x600 // 2):
+                e = struct.unpack_from('<H', b, base + 2 * i)[0]
+                t = e & 0x3FF
+                if t:
+                    e = (e & ~0x3FF) | ((t - prev) & 0x3FF); prev = t
+                if mask: e &= 0x0FFF
+                hb = ((hb ^ e) * 16777619) & 0xFFFFFFFF
+            h = ((h ^ hb) * 16777619) & 0xFFFFFFFF
     return h
 if __name__ == '__main__':
     ok = bad = 0; new = {}

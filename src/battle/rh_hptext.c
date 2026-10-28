@@ -12,6 +12,7 @@
 #define FS_OpenFile   ((BOOL (*)(void *, const char *))0x020D8278)   // ARM
 #define FS_CloseFile  ((BOOL (*)(void *))0x020D82C0)                 // ARM
 #define FS_ReadFile   ((s32 (*)(void *, void *, s32))0x020D83CC)     // ARM
+#define FS_SeekFile   ((BOOL (*)(void *, s32, u32))0x020D83DC)       // ARM
 #define FSFILE_SIZE   0x48
 
 #define OAM       ((vu16 *)0x07000000)
@@ -30,26 +31,48 @@ static struct { u32 key; u8 mask[512]; } sArt[MAX_ART];
 static u32 sArtN;
 static struct { u32 sum; u16 tile; u8 art; } sPiece[MAX_PIECES];
 
-static u32 Nib(const u8 *chr, u32 x, u32 y)
+// A 64x64 sprite's tile row (8 pixels, one word of its graphics) and the masks' byte for the same 8 pixels: tile t,
+// row r is word t * 8 + r and mask byte (t / 8 * 8 + r) * 8 + t % 8. Bit q: pixel q of the row (low nibble first).
+#define MASK_BYTE(t, r) ((((t) >> 3) * 8 + (r)) * 8 + ((t) & 7))
+
+// the row's pixels in entry 14 or 2 (1110 / 0010: bit 1 set, bit 0 clear, bits 2 and 3 equal), one bit each
+static u32 Bits14or2(u32 w)
 {
-    u32 t = (y >> 3) * 8 + (x >> 3), p = (y & 7) * 8 + (x & 7), b = chr[t * 32 + p / 2];
-    return p & 1 ? b >> 4 : b & 15;
+    u32 c = (w >> 1) & ~w & ~((w >> 2) ^ (w >> 3)) & 0x11111111;
+    c = (c | c >> 3) & 0x03030303;
+    c = (c | c >> 6) & 0x000F000F;
+    return (c | c >> 12) & 0xFF;
 }
 
-static BOOL Is14or2(u32 n)
+// back: 8 bits -> their pixels' nibbles all set
+static u32 Nibbles(u32 b)
 {
-    return n == 14 || n == 2;
+    b = (b | b << 12) & 0x000F000F;
+    b = (b | b << 6) & 0x03030303;
+    return ((b | b << 3) & 0x11111111) * 15;
+}
+
+static u32 Count8(u32 x)
+{
+    x = x - ((x >> 1) & 0x55);
+    x = (x & 0x33) + ((x >> 2) & 0x33);
+    return (x + (x >> 4)) & 0x0F;
 }
 
 // how well a half's mask fits a box sprite: its art pixels shown in 14/2 (the theme's tile patches may have moved a
-// few to spare entries)
+// few to spare entries). A row at a time: this runs in the vertical blank when the boxes appear
 static s32 Score(const u8 *mask, const u8 *chr)
 {
+    const u32 *w = (const u32 *)chr;
     s32 s = 0;
-    u32 i;
-    for (i = 0; i < 4096; i++)
-        if (mask[i >> 3] & 1 << (i & 7))
-            s += Is14or2(Nib(chr, i & 63, i >> 6)) ? 1 : -1;
+    u32 t, r;
+    for (t = 0; t < 64; t++)
+        for (r = 0; r < 8; r++)
+        {
+            u32 m = mask[MASK_BYTE(t, r)];
+            if (m != 0)
+                s += 2 * (s32)Count8(m & Bits14or2(w[t * 8 + r])) - (s32)Count8(m);
+        }
     return s;
 }
 
@@ -57,57 +80,53 @@ static s32 Score(const u8 *mask, const u8 *chr)
 static void MatchArt(const u8 *const *chr, u32 n)
 {
     static u8 sMask[512];
-    u32 file[FSFILE_SIZE / 4], hdr[2], i, j, k, a, bestKey[MAX_PIECES], pass;
+    u32 file[FSFILE_SIZE / 4], hdr[2], i, k, a, bestKey[MAX_PIECES], bestAt[MAX_PIECES];
     s32 best[MAX_PIECES];
     for (k = 0; k < n; k++)
     {
         best[k] = 0;
         bestKey[k] = 0;
     }
-    // pass 0: score every half; pass 1: keep the winners' masks
-    for (pass = 0; pass < 2; pass++)
-    {
-        FS_InitFile(file);
-        if (!FS_OpenFile(file, "data/rh_hpart.bin"))
-            return;
-        if (FS_ReadFile(file, hdr, 8) == 8 && hdr[0] == 0x50484852)
-            for (i = 0; i < hdr[1]; i++)
+    FS_InitFile(file);
+    if (!FS_OpenFile(file, "data/rh_hpart.bin"))
+        return;
+    // every half scored; then only the winners' masks read again (by position: 8 + index * 516)
+    if (FS_ReadFile(file, hdr, 8) == 8 && hdr[0] == 0x50484852)
+        for (i = 0; i < hdr[1]; i++)
+        {
+            u32 key;
+            if (FS_ReadFile(file, &key, 4) != 4 || FS_ReadFile(file, sMask, 512) != 512)
+                break;
+            for (k = 0; k < n; k++)
             {
-                u32 key;
-                if (FS_ReadFile(file, &key, 4) != 4 || FS_ReadFile(file, sMask, 512) != 512)
-                    break;
-                for (k = 0; k < n; k++)
+                s32 sc;
+                if (sPiece[k].art == NO_ART && (sc = Score(sMask, chr[k])) > best[k])
                 {
-                    if (sPiece[k].art != NO_ART)
-                        continue;
-                    if (pass == 0)
-                    {
-                        s32 s = Score(sMask, chr[k]);
-                        if (s > best[k])
-                        {
-                            best[k] = s;
-                            bestKey[k] = key;
-                        }
-                        continue;
-                    }
-                    if (bestKey[k] != key)
-                        continue;
-                    for (a = 0; a < sArtN && sArt[a].key != key; a++)
-                        ;
-                    if (a == sArtN)
-                    {
-                        if (sArtN == MAX_ART)
-                            continue;
-                        sArt[a].key = key;
-                        for (j = 0; j < 512; j++)
-                            sArt[a].mask[j] = sMask[j];
-                        sArtN++;
-                    }
-                    sPiece[k].art = (u8)a;
+                    best[k] = sc;
+                    bestKey[k] = key;
+                    bestAt[k] = 8 + i * 516 + 4;
                 }
             }
-        FS_CloseFile(file);
+        }
+    for (k = 0; k < n; k++)
+    {
+        if (sPiece[k].art != NO_ART || best[k] <= 0)
+            continue;
+        for (a = 0; a < sArtN && sArt[a].key != bestKey[k]; a++)
+            ;
+        if (a == sArtN)
+        {
+            if (sArtN == MAX_ART)
+                continue;
+            FS_SeekFile(file, bestAt[k], 0);
+            if (FS_ReadFile(file, sArt[a].mask, 512) != 512)
+                continue;
+            sArt[a].key = bestKey[k];
+            sArtN++;
+        }
+        sPiece[k].art = (u8)a;
     }
+    FS_CloseFile(file);
 }
 
 static BOOL IsHpRow(u32 r)
@@ -233,21 +252,16 @@ void RH_HpText(void)
         if (sPiece[k].art != NO_ART && sPiece[k].sum != sum)
         {
             // what the game drew changed: copy its text again
-            u8 *ovl = (u8 *)(OBJ_VRAM + (OVL_SLOT(k) << shift));
+            vu32 *ovl = (vu32 *)(OBJ_VRAM + (OVL_SLOT(k) << shift));
             const u8 *m = sArt[sPiece[k].art].mask;
-            u32 x, y;
-            for (y = 0; y < 64; y++)
-                for (x = 0; x < 64; x += 4)
+            const u32 *src = (const u32 *)chr[k];
+            u32 t, r;
+            for (t = 0; t < 64; t++)
+                for (r = 0; r < 8; r++)
                 {
-                    u32 out = 0, q;
-                    for (q = 0; q < 4; q++)
-                    {
-                        u32 v = Nib(chr[k], x + q, y), p = y * 64 + x + q;
-                        if (Is14or2(v) && !(m[p >> 3] & 1 << (p & 7)))
-                            out |= v << (q * 4);
-                    }
-                    // (VRAM takes 16-bit writes: 4 pixels at a time)
-                    *(vu16 *)(ovl + ((y >> 3) * 8 + (x >> 3)) * 32 + (y & 7) * 4 + (x & 7) / 2) = (u16)out;
+                    // the row's text pixels: 14/2 where the box art isn't (same layout as the box sprite)
+                    u32 w = src[t * 8 + r];
+                    ovl[t * 8 + r] = w & Nibbles(Bits14or2(w) & ~m[MASK_BYTE(t, r)]);
                 }
             sPiece[k].sum = sum;
         }

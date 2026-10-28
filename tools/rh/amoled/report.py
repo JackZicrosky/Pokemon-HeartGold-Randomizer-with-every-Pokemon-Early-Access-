@@ -43,7 +43,7 @@ for p in glob.glob('reports/report_*.json'):
     for k, v in json.load(open(p)).items():
         refs[k] = {tuple(r['frames']): r for r in v['runs']}
 
-page = ['<!doctype html><meta charset="utf-8"><title>AMOLED frame report</title><style>body{background:#000;color:#fff;'
+page = ['<!doctype html><meta charset="utf-8"><meta name="darkreader-lock"><title>AMOLED frame report</title><style>body{background:#000;color:#fff;'
         'font:14px sans-serif;margin:16px}img{image-rendering:pixelated;max-width:100%}h2{border-top:1px solid #444;'
         'padding-top:12px}.f{color:#f66}.ok{color:#8c8}</style><h1>AMOLED frame report</h1>'
         '<p>Every menu state, 300 frames (5 s at 60 fps) idle and after every button / touch, at morning 07:00, day '

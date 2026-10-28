@@ -256,6 +256,14 @@ for k in sys.argv[3:]:
         a, _, hx = k[5:].partition(',')
         for i, v in enumerate(bytes.fromhex(hx)):
             h.emu.memory.write_byte(int(a, 16) + i, v)
+    elif k.startswith('foehp:'):                 # foehp:SPECIES,LEVEL,HP  the battle record of that wild Pokemon (species
+        # u16 at +0, level +0x34, current HP +0x4C, max HP +0x50; the heap decides where): its current HP set
+        sp, lv, hpv = [int(v) for v in k[6:].split(',')]
+        ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False)); n = 0
+        for o in range(0, len(ram) - 0x60, 4):
+            if ram[o] == sp & 255 and ram[o + 1] == sp >> 8 and ram[o + 0x34] == lv and 0 < ram[o + 0x50] | ram[o + 0x51] << 8 < 1000                     and ram[o + 0x4C:o + 0x4E] == ram[o + 0x50:o + 0x52]:
+                h.emu.memory.write_byte(0x02000000 + o + 0x4C, hpv & 255); h.emu.memory.write_byte(0x02000000 + o + 0x4D, hpv >> 8); n += 1
+        print('foehp set', n)
     elif k.startswith('peek:'):                  # peek:ADDR[,COUNT]  print COUNT bytes (hex) at ADDR
         a, _, c = k[5:].partition(',')
         print('peek', k[5:], bytes(h.emu.memory.read(int(a, 16), int(a, 16) + int(c or '4') - 1, 1, False)).hex())

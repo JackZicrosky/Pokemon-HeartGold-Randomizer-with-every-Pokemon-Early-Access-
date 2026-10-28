@@ -102,27 +102,29 @@ static void IdColours(u32 narcId, s32 fileId, u32 first, u16 *colors, u32 n, u32
 }
 #endif
 
-// data/rh_amoled.bin (tools/rh/gen_rh_amoled.py): "RHA3", entry count, a bit mask of the archives in it (320 bits),
-// then the entries { u32 narc << 16 | file, u32 screen context (0xFFFFFFFF: any screen), u32 offset } sorted, each
-// offset pointing at { u32 colour count, u32 where the colours start in the palette file, colours }. Every palette
+// data/rh_amoled.bin (tools/rh/gen_rh_amoled.py): "RHA4", entry count, a bit mask of the archives in it (320 bits),
+// then the entries { u32 narc << 16 | file, u32 screen context (0xFFFFFFFF: any screen), u32 offset of the colours,
+// u32 colour count | where the colours start in the palette file << 16 } sorted. Every palette
 // file of the UI archives is in it once for any screen, plus a version for each screen the owner coloured it
 // differently on.
-#define AM_MAGIC   0x33414852
+#define AM_MAGIC   0x34414852
 #define AM_HEADER  48
 #define AM_ANY     0xFFFFFFFF
 static u32 sArcMask[10];
 static BOOL sArcMaskLoaded;
 static u32 *sAmBlocks;      // the table's entries in blocks of AM_BLOCK: each block's first (key, context), read once
 static u32 sAmCount;
+static u32 *sAmCache;       // the block read last (a screen loads files of one archive one after another), sAmCacheB
 static u32 *sAmFile;        // the table, open
 #define AM_BLOCK 32
 static void *SafeAlloc(u32 size);
 
 // Opens the table and looks (narc, file, context) up: the file position of its colours (the table stays open), or 0
 // (closed). With the blocks' first keys in memory: one read of the block, one of the entry's header.
+static u32 sAmCacheB = 0xFFFFFFFF;
 static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u32 *count)
 {
-    u32 hdr[AM_BLOCK * 3], key = narcId << 16 | (u32)fileId, i, b, n;
+    u32 hdr[12], key = narcId << 16 | (u32)fileId, i, b, n, *e;
     if (narcId >= 320 || (sArcMaskLoaded && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
         return 0;
     if (sAmFile == NULL)                       // (opened once, kept open: opening by path costs a directory search)
@@ -140,17 +142,19 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
     file = sAmFile;
     if (sAmBlocks == NULL)
     {
+        FS_SeekFile(file, 0, 0);
         if (FS_ReadFile(file, hdr, AM_HEADER) != AM_HEADER || hdr[0] != AM_MAGIC)
             goto none;
         for (i = 0; i < 10; i++)
             sArcMask[i] = hdr[2 + i];
         sArcMaskLoaded = TRUE;
         n = hdr[1];
-        if ((sAmBlocks = SafeAlloc((n + AM_BLOCK - 1) / AM_BLOCK * 8)) == NULL)
+        if ((sAmCache == NULL && (sAmCache = SafeAlloc(AM_BLOCK * 16)) == NULL)
+            || (sAmBlocks = SafeAlloc((n + AM_BLOCK - 1) / AM_BLOCK * 8)) == NULL)
             goto none;
         for (b = 0; b * AM_BLOCK < n; b++)
         {
-            FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 12, 0);
+            FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 16, 0);
             FS_ReadFile(file, sAmBlocks + b * 2, 8);
         }
         sAmCount = n;
@@ -162,17 +166,18 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
          && (sAmBlocks[b * 2 + 2] < key || (sAmBlocks[b * 2 + 2] == key && sAmBlocks[b * 2 + 3] <= ctx)); b++)
         ;
     n = sAmCount - b * AM_BLOCK < AM_BLOCK ? sAmCount - b * AM_BLOCK : AM_BLOCK;
-    FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 12, 0);
-    FS_ReadFile(file, hdr, n * 12);
-    for (i = 0; i < n; i++)
-        if (hdr[i * 3] == key && hdr[i * 3 + 1] == ctx)
+    if (b != sAmCacheB)
+    {
+        FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 16, 0);
+        FS_ReadFile(file, sAmCache, n * 16);
+        sAmCacheB = b;
+    }
+    for (i = 0, e = sAmCache; i < n; i++, e += 4)
+        if (e[0] == key && e[1] == ctx)
         {
-            b = hdr[i * 3 + 2];
-            FS_SeekFile(file, b, 0);
-            FS_ReadFile(file, hdr, 8);
-            *count = hdr[0];
-            *start = hdr[1];
-            return b + 8;
+            *count = e[3] & 0xFFFF;
+            *start = e[3] >> 16;
+            return e[2];
         }
 none:
     return 0;
@@ -253,29 +258,32 @@ static u32 *sPatch;         // the shown screen's tile patches (see TilePatches)
 static u32 sPatchCount;
 u32 sCmMap;                 // the battle Check Moves map re-pointed at its type rows (src/battle/rh_hptext.c), or 0
 
+// Each map's quick checksum (as it is, theme's patches and all) and its part of the fingerprint: a map is fingerprinted
+// the long way only when its checksum changes (they rarely do; every cell the long way each frame overran the
+// vertical blank and slowed the game down)
+static u32 sMapQuick[8], sMapHash[8];
 static u32 ScreenSig(void)
 {
-    u32 h = 2166136261u, eng, bg, i, lo, low;
+    u32 h = 2166136261u, eng, bg, i, lo, prev, w2 = 0;
     for (eng = 0; eng < 2; eng++)
     {
         u32 io = eng ? 0x04001000 : 0x04000000, disp = *(vu32 *)io;
         for (bg = 0; bg < 4; bg++)
         {
-            u32 cnt;
-            const vu32 *map;
+            u32 cnt, cm, q, hb;
+            const vu16 *map;
             if (!(disp & (0x100u << bg)))
                 continue;
             cnt = *(vu16 *)(io + 8 + bg * 2);
-            map = (const vu32 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
+            map = (const vu16 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
             h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
-            // tile numbers relative to the map's lowest one: text windows get their tiles where the game finds room
-            // (what was open before decides), the same screen must give the same fingerprint
-            low = 0x3FF;
-            for (i = 0; i < 0x600 / 2; i++)
+            // (multiplied, not just rotated: rows moved by a few rows must change it too)
+            for (i = 0, q = (u32)map ^ sCmMap; i < 0x600 / 4; i++)
+                q = (q ^ ((const vu32 *)map)[i]) * 16777619u;
+            if (q == sMapQuick[eng * 4 + bg])
             {
-                u32 t = ((const vu16 *)map)[i] & 0x3FF;
-                if (t != 0 && t < low)
-                    low = t;
+                h = (h ^ sMapHash[eng * 4 + bg]) * 16777619u;
+                continue;
             }
             // tile patches on the map (palette numbers / tile numbers of cells, "map patches"): hashed as the game
             // drew them. The patches are sorted by address like the map: found once, then walked along with it
@@ -291,26 +299,42 @@ static u32 ScreenSig(void)
                         hi = k;
                 }
             }
-            for (i = 0; i < 0x600 / 4; i++)
+            // tile numbers as steps from the cell before's (cells without a tile skipped): text windows get their
+            // tiles where the game finds room (what was open before decides), the same screen must give the same
+            // fingerprint
+            cm = (u32)map == sCmMap;
+            prev = 0;
+            hb = 2166136261u;
+            for (i = 0; i < 0x600 / 2; i++)
             {
-                u32 w = map[i], k, a = (u32)&map[i] - 0x06000000;
-                for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a; lo++)
-                    ;
-                for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 4; lo++)
+                u32 e, t;
+                if (!(i & 1))
+                    w2 = ((const vu32 *)map)[i >> 1];
+                e = i & 1 ? w2 >> 16 : w2 & 0xFFFF;
+                if (lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < (u32)&map[i] + 2 - 0x06000000)
                 {
-                    u32 e = sPatch[lo], sh = (e & 3) * 8 + (e >> 23 & 1) * 4;
-                    if ((w >> sh & 15) == (e >> 28 & 15))
-                        w = (w & ~(15u << sh)) | (e >> 24 & 15) << sh;
+                    u32 a = (u32)&map[i] - 0x06000000;
+                    for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a; lo++)
+                        ;
+                    for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 2; lo++)
+                    {
+                        u32 p = sPatch[lo], sh = (p & 1) * 8 + (p >> 23 & 1) * 4;
+                        if ((e >> sh & 15) == (p >> 28 & 15))
+                            e = (e & ~(15u << sh)) | (p >> 24 & 15) << sh;
+                    }
                 }
-                if ((u32)map == sCmMap && i >= 6 * 16 && i < 18 * 16)     // (as the game drew it: palette 12)
-                    for (k = 12; k < 32; k += 16)
-                        if ((w >> k & 15) == 7 || (w >> k & 15) == 8 || (w >> k & 15) == 10)
-                            w = (w & ~(15u << k)) | 12u << k;
-                for (k = 0; k < 32; k += 16)
-                    if (w >> k & 0x3FF)
-                        w = (w & ~(0x3FFu << k)) | (((w >> k & 0x3FF) - low) & 0x3FF) << k;
-                h = (h ^ w) * 16777619u;
+                if (cm && i >= 12 * 16 && i < 36 * 16 && ((e >> 12) == 7 || (e >> 12) == 8 || (e >> 12) == 10))
+                    e = (e & 0x0FFF) | 12u << 12;      // (as the game drew it: palette 12)
+                if ((t = e & 0x3FF) != 0)
+                {
+                    e = (e & ~0x3FFu) | ((t - prev) & 0x3FF);
+                    prev = t;
+                }
+                hb = (hb ^ e) * 16777619u;
             }
+            sMapQuick[eng * 4 + bg] = q;
+            sMapHash[eng * 4 + bg] = hb;
+            h = (h ^ hb) * 16777619u;
         }
     }
     return h;
@@ -623,7 +647,7 @@ static void ShowScreen(u32 sig)
 
 static void ThemeTask(void *task, void *data)
 {
-    u32 theme = RHCT_UiTheme(), sig;
+    u32 theme = RHCT_UiTheme(), sig, i;
     (void)task; (void)data;
     if (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS)
         return;
@@ -676,6 +700,9 @@ static void ThemeTask(void *task, void *data)
             sRegCount = 0;
         }
         ShowScreen(sig);
+        // (the maps' cached parts were hashed with the old screen's patches undone: hash them again)
+        for (i = 0; i < 8; i++)
+            sMapQuick[i] = 0;
     }
     TilePatches(FALSE);
     ApplyRows();
@@ -713,6 +740,7 @@ static void ThemeTask(void *task, void *data)
             sCmMap = ((u32 (*)(void))hp[5])();      // battle move buttons (the Check Moves map it re-pointed, or 0)
             ((void (*)(void))hp[2])();              // HP-box text
         }
+
     }
 }
 
