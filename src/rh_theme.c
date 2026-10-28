@@ -520,22 +520,24 @@ static void SetIndex(u32 idx, u32 c)
 static u32 *sSigs;         // the file's screen list (fingerprint, offset) pairs, read once (system heap)
 static u32 sSigCount, sRowsAt;
 
-static void ShowScreen(u32 sig)
+// The screen list's entry for a fingerprint: the offset of its page, 0 (none), or bit 31 + a palette RAM index: the
+// screen comes in versions told apart by that entry's colour (the bag's pockets, a pressed button: the same tile
+// maps), each with a page of its own under the fingerprint mixed with the colour (tools/rh/amoled/learn.py)
+static u32 FindPage(u32 sig)
 {
-    u32 file[FSFILE_SIZE / 4], hdr[3], ent[2], lo, hi, mid, n = 0, i, bloom = 0, pair[2];
-    struct PgRow *row;
+    u32 file[FSFILE_SIZE / 4], hdr[3], lo, hi, mid;
     if (sSigs == NULL)
     {
         FS_InitFile(file);
         if (!FS_OpenFile(file, "data/rh_amoled_pages.bin"))
-            return;
+            return 0;
         if (FS_ReadFile(file, hdr, 12) == 12 && hdr[0] == PG_MAGIC && hdr[1] != 0)
         {
             sSigs = SafeAlloc(hdr[1] * 8);
             if (sSigs == NULL)
             {
                 FS_CloseFile(file);
-                return;            // (no room now: try again on the next screen)
+                return 0;          // (no room now: try again on the next screen)
             }
             FS_ReadFile(file, sSigs, hdr[1] * 8);
             sSigCount = hdr[1];
@@ -549,21 +551,25 @@ static void ShowScreen(u32 sig)
         }
     }
     lo = 0; hi = sSigCount;
-    ent[1] = 0;
     while (lo < hi)
     {
         mid = (lo + hi) / 2;
         if (sSigs[mid * 2] == sig)
-        {
-            ent[1] = sSigs[mid * 2 + 1];
-            break;
-        }
+            return sSigs[mid * 2 + 1];
         if (sSigs[mid * 2] < sig)
             lo = mid + 1;
         else
             hi = mid;
     }
-    if (ent[1] == 0)
+    return 0;
+}
+
+static void ShowScreen(u32 sig)
+{
+    u32 file[FSFILE_SIZE / 4], hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
+    struct PgRow *row;
+    ent[1] = FindPage(sig);
+    if (ent[1] == 0 || ent[1] >> 31)
         return;
     gRhScreenSig.shown = sig;
     FS_InitFile(file);
@@ -659,6 +665,8 @@ static void ThemeTask(void *task, void *data)
     if (gRhScreenSig.rows == 0x45474150)       // (test tools: "PAGE" = no screen pages, for the captures learn.py reads)
         sig = 0;
 #endif
+    if ((i = FindPage(sig)) >> 31)
+        sig = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
     if (sig != sLastSig)
     {
         sLastSig = sig;

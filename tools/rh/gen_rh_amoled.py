@@ -353,11 +353,17 @@ def pages(loaded):
                 per_sig[a] = dict(per_sig.get(sc['sig'], {}))
                 vpatch[a] = list(vpatch.get(sc['sig'], []))
                 regs[a] = dict(regs.get(sc['sig'], {}))
-    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs))
+    # screens in versions (tools/rh/amoled/learn.py): the shared fingerprint points at the palette entry that tells
+    # them apart (bit 31), each version's page is under its own fingerprint
+    marks = {sc['base']: 0x80000000 | sc['vkey'] for sc in screens.values() if 'vkey' in sc}
+    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs) | set(marks))
     data = bytearray()
     offs = []
     base_off = 12 + 8 * len(sigs) + 32 * len(rows)
     for sg in sigs:
+        if sg in marks:
+            offs.append(marks[sg])
+            continue
         offs.append(base_off + len(data))
         pairs = list(per_sig.get(sg, {}))
         data += struct.pack('<I', len(pairs)) + b''.join(struct.pack('<II', a, b) for a, b in pairs)

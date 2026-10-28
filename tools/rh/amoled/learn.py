@@ -98,6 +98,11 @@ for f in sorted(glob.glob(A + '[0-9]*.png')):
                 ctx_votes[name][e + (ctx,)][own5(op)] += 1
                 pix[name][e + (ctx,)][own5(op)].append(i)
                 if dp != op: ok += 1
+            elif e[2] < len(pal) and dp == op:
+                # the game shows the file's colour changed (the bag tints its rows per pocket, fades...) and the owner
+                # kept what it shows: the file keeps its own colour (the theme's darkened one would come out darker)
+                votes[e][pal[e[2]] & 0x7FFF] += 1
+                cvotes[e + (ctx,)][pal[e[2]] & 0x7FFF] += 1
         if dp != op: changed += 1
     report.append('%-38s <- %-10s diff=%5d changed=%5d explained=%5d (%d%%)' % (name, best, bn, changed, ok, 100 * ok // max(1, changed)))
 print('\n'.join(report))
@@ -492,6 +497,35 @@ for sc in screens:
             ipstat['tile copies'] += 1
     screens[sc]['ipatch'] = ip
     ipstat['patches'] += len(ip)
+# screen versions: pictures of one fingerprint (the same tile maps: the bag's pockets, a pressed button) told apart by
+# a palette entry the game gives another colour in each (none of their pages touches it; background palettes first,
+# sprite palettes animate more): each gets a page of its own under the fingerprint mixed with that colour, the screen
+# list marks the fingerprint with the entry (src/rh_theme.c FindPage / ThemeTask)
+by_sig = collections.defaultdict(list)
+for sc_ in screens:
+    by_sig[screens[sc_]['sig']].append(sc_)
+for sig_, names in by_sig.items():
+    if len(names) < 2 or sig_ is None:
+        continue
+    pals = {}
+    for n_ in names:
+        f_ = CAPS + 'am_' + MATCH[n_] + '.vram2'
+        if os.path.exists(f_):
+            vb = open(f_, 'rb').read()
+            pals[n_] = [dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)]
+    if len(pals) < len(names):
+        continue
+    touched = {i_ for n_ in names for i_, _ in screens[n_].get('ipatch', [])}
+    order = list(range(0, 256)) + list(range(512, 768)) + list(range(256, 512)) + list(range(768, 1024))
+    key = next((k_ for k_ in order if k_ not in touched and len({pals[n_][k_] for n_ in names}) == len(names)), None)
+    if key is None:
+        ipstat['screen versions: no entry tells them apart'] += 1; continue
+    for n_ in names:
+        screens[n_]['base'] = sig_
+        screens[n_]['vkey'] = key
+        screens[n_]['sig'] = ((sig_ ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
+    ipstat['screen versions'] += 1
+    print('screen versions', names, 'entry', key)
 # colour links: pictures of one screen (one fingerprint) that want an entry in different colours (the bag's pockets:
 # each pocket's colour) get it linked to the entry that holds that colour in each of them (the pocket's own palette
 # row, loaded by the game): the theme copies that entry's colour every frame (src/rh_theme.c IdxWant)
