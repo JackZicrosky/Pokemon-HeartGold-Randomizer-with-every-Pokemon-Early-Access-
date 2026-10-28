@@ -1,0 +1,32 @@
+# every owner-designed screen, captured in MODES (def id am), at the owner's time (Saturday 03:23, night)
+export SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
+cd /root/amw
+P=/root/dsvenv/bin/python
+export RTC="2026-10-24 03:23"
+F='^end|WARN|Error|Trace|give4'
+# battle savestates (made once per build, in def mode: same battle in every mode)
+if [ "$MKSTATES" = 1 ]; then
+  $P cap.py def r30.sav battle ssave:bpre 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav give4:52 battle ssave:bpre4 2>&1 | grep -E "$F"
+fi
+for M in $MODES; do
+# field menu, Pokedex, trainer card, save, options, Pokegear, party, summary, bag
+$P cap.py $M r30.sav theme X W100 T43,121 W200 B W60 idreset B W200 X W100 cap:s25 U W40 cap:s26a D W40 cap:s26b idreset T43,41 W200 cap:s27 A W120 cap:s28 A W150 cap:s29 R W80 cap:s30 R W80 cap:s31 B W100 B W100 B W150 idreset T123,41 W200 cap:s32 T128,100 W120 cap:s33 idreset B W120 B W150 T123,81 W100 cap:s34 B W100 idreset T123,121 W200 cap:s35 B W150 idreset T43,161 W200 cap:s36 T30,180 W120 cap:s38 T128,180 W150 cap:s37 B W100 B W150 idreset T43,81 W200 cap:s39 A W60 cap:s40 A W200 cap:s41 R W80 cap:s42 R W80 cap:s43 B W100 B W100 B W150 idreset T43,121 W200 T16,16 W60 cap:s_bag16 T48,16 W60 cap:s_bag48 T80,16 W60 cap:s_bag80 T112,16 W60 cap:s_bag112 T144,16 W60 cap:s_bag144 T176,16 W60 cap:s_bag176 T208,16 W60 cap:s_bag208 T240,16 W60 cap:s_bag240 A W60 cap:s52 2>&1 | grep -E "$F"
+# continue screen
+$P cap.py $M r30.sav@ theme idreset A W300 A W400 cap:m02 D W40 cap:m02b A W500 cap:m03 2>&1 | grep -E "$F"
+# new game: options screens, Oak, naming
+$P cap.py $M none W300 cap:n_ng_boot W300 A W300 cap:n_ng_title A W400 theme W2 cap:n_ng_menu cap:n_os00  r W40 cap:n_os01 r W40 cap:n_os02 r W40 cap:n_os03 r W40 cap:n_os04 r W40 cap:n_os05 r W40 cap:n_os06 r W40 cap:n_os07 r W40 cap:n_os08 r W40 cap:n_os09 r W40 cap:n_os10 r W40 cap:n_os11 r W40 cap:n_os12 r W40 s W40 cap:n_os_sectionmenu B W40 D4 W10 D4 W10 D4 W10 A W60 cap:n_os_keyboard B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 B4 W20 cap:n_os_kb2 S4 W40 l4 W40 l4 W40 A W60 cap:n_os_code B4 W60 theme idreset S4 W40 cap:n_os_begin A W200 cap:n_oak0 A W150 cap:n_oak1 A W150 cap:n_oak2 A W150 cap:n_oak3 A W150 cap:n_oak4 A W150 cap:n_oak5 A W150 cap:n_oak6 A W150 cap:n_oak7 A W150 cap:n_oak8 A W150 cap:n_oak9 A W150 cap:n_oak10 A W150 cap:n_oak11 A W150 cap:n_oak12 A W150 cap:n_oak13 A W150 cap:n_oak14 A W150 cap:n_oak15 A W150 cap:n_oak16 A W150 cap:n_oak17 A W150 cap:n_oak18   A W100 cap:n_nm01 A W100 cap:n_nm02 A W100 cap:n_nm03 A W100 cap:n_nm04 A W100 cap:n_nm05 A W100 cap:n_nm06 A W100 cap:n_nm07 A W100 cap:n_nm08 A W100 cap:n_nm09 A W100 cap:n_nm10 A W100 cap:n_nm11 A W100 cap:n_nm12 2>&1 | grep -E "$F"
+# Poke Mart
+$P cap.py $M mart.sav nowild theme goto:4,11 D16 W200 idreset U16 W200 goto:4,6 L4 W20 A W80 cap:k1 A W80 cap:k2 A W100 cap:k3 A W80 cap:k4 A W60 cap:k5 B W60 B W60 B W80 cap:k6 2>&1 | grep -E "$F"
+# pressed buttons, Pokedex search, Pokegear skin 1, party / summary details
+$P cap.py $M r30.sav theme X W100 T43,121 W200 B W60 idreset B W200 X W100 P43,41 cap:x_fm_press idreset rel W200 cap:x_dex T30,178 W300 cap:x_dexsearch B W200 cap:x_dex2 B W100 B W150 idreset T43,161 W200 T30,180 W150 cap:x_g1 T128,44 W150 cap:x_g2 T208,44 W150 cap:x_g3 T48,116 W150 cap:x_g4 T128,116 W150 cap:x_g5 T208,116 W150 cap:x_g6 T128,180 W150 cap:x_g6map B W100 B W150 idreset P43,81 cap:x_party_press rel W200 P64,40 cap:x_slot_press rel W100 cap:x_partymenu A W200 R W80 R W80 cap:x_moves A W150 cap:x_movedetail B W100 B W100 B W100 B W150 idreset T43,121 W200 P64,60 cap:x_bagitem_press rel W100 cap:x_bagmenu P50,330 cap:x_bagbtn_press rel W100 2>&1 | grep -E "$F"
+# Pokegear skins 2-6
+$P cap.py $M r30.sav theme idreset T43,161 W200 T30,180 W150 T128,44 W80 A W200 cap:y_g2skins T176,180 W150 cap:y_g2phone T128,180 W150 cap:y_g2map T30,180 W150 T208,44 W80 A W200 cap:y_g3skins T176,180 W150 cap:y_g3phone T128,180 W150 cap:y_g3map T30,180 W150 T48,116 W80 A W200 cap:y_g4skins T176,180 W150 cap:y_g4phone T128,180 W150 cap:y_g4map T30,180 W150 T128,116 W80 A W200 cap:y_g5skins T176,180 W150 cap:y_g5phone T128,180 W150 cap:y_g5map T30,180 W150 T208,116 W80 A W200 cap:y_g6skins T176,180 W150 cap:y_g6phone T128,180 W150 cap:y_g6map T30,180 W150 T48,44 W80 A W200 B W150 B W150 B W150 2>&1 | grep -E "$F"
+$P cap.py $M r30.sav theme idreset P43,81 cap:y_party_press rel W200 cap:y_party P64,40 cap:y_slot_press rel W100 cap:y_partymenu A W200 cap:y_sum1 R W80 R W80 cap:y_sum3 A W150 cap:y_movedetail B W150 B W100 B W100 B W150 2>&1 | grep -E "$F"
+# battle (night, the same battle in every mode)
+$P cap.py $M none sload:bpre theme idreset W150 cap:e_i1 W150 cap:e_i2 W150 cap:e_i3 W250 cap:e_cmd P128,83 cap:e_fp0 W2 cap:e_fp1 W3 cap:e_fp2 rel W300 cap:e_moves B W20 B W400 cap:e_cmd2 P40,168 cap:e_bp0 W2 cap:e_bp1 W3 cap:e_bp2 rel W400 cap:e_bag P64,42 cap:e_pocket_press rel W400 cap:e_bag_items T64,30 W400 cap:e_item 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre theme idreset W700 cap:e_cmd3 P216,168 cap:e_party_press rel W400 cap:e_party T64,40 W400 cap:e_party_menu T50,172 W500 cap:e_sum R W200 cap:e_sum2 B W500 T155,172 W500 cap:e_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre4 theme idreset W700 T128,83 W300 cap:f_moves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre4 theme idreset W700 P216,168 rel W400 T64,40 W400 T155,172 W500 cap:f_checkmoves 2>&1 | grep -E "$F"
+echo "mode $M done"
+done

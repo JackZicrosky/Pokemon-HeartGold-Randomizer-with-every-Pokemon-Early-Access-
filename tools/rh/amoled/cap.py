@@ -14,7 +14,7 @@ OUT = SP + '/caps'
 os.makedirs(OUT, exist_ok=True)
 mode, save = sys.argv[1], sys.argv[2]
 cont = not save.endswith('@'); save = save.rstrip('@')      # SAVE@ = stay on the title screen
-h = Harness('/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/test.nds', None if save == 'none' else SP + '/' + save)
+h = Harness(os.environ.get('ROM', '/mnt/d/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/source/test.nds'), None if save == 'none' else SP + '/' + save)
 m = h.emu.memory.unsigned
 if os.environ.get('RTC'):                       # RTC="YYYY-MM-DD HH:MM": a fixed clock (time of day, and the same RNG every run)
     from desmume.emulator import DeSmuME_Date, StartFrom
@@ -56,6 +56,10 @@ for k in sys.argv[3:]:
     if k == 'theme':
         for a in play.find_all_rh_settings(h.emu.memory):
             h.emu.memory.write_byte(a + 213, {'id': 3, 'am': 2}.get(mode, 0))
+        if mode == 'am' and os.environ.get('NOPAGES'):          # (the captures learn.py reads: no screen pages)
+            ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+            for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
+                h.emu.memory.write_byte(0x023D8000 + j + 16 + i, v)
     elif k == 'idreset':
         a = log_addr()
         if a is not None:
@@ -188,7 +192,15 @@ for k in sys.argv[3:]:
         rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
         blob = rd(0x04000000, 0x70) + rd(0x04001000, 0x70) + rd(0x05000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000)
         open('%s/%s.vram' % (OUT, k[5:]), 'wb').write(blob)
-    elif k.startswith('peek:'):                   # peek:ADDR[,COUNT]  print COUNT bytes (hex) at ADDR
+    elif k == 'nopages':                          # test builds: the AMOLED theme without its screen pages
+        ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+        for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
+            h.emu.memory.write_byte(0x023D8000 + j + 16 + i, v)
+    elif k.startswith('poke:'):                   # poke:ADDR,HEXBYTES  write bytes into memory (test setups)
+        a, _, hx = k[5:].partition(',')
+        for i, v in enumerate(bytes.fromhex(hx)):
+            h.emu.memory.write_byte(int(a, 16) + i, v)
+    elif k.startswith('peek:'):                  # peek:ADDR[,COUNT]  print COUNT bytes (hex) at ADDR
         a, _, c = k[5:].partition(',')
         print('peek', k[5:], bytes(h.emu.memory.read(int(a, 16), int(a, 16) + int(c or '4') - 1, 1, False)).hex())
     elif k.startswith('ramdump:'):              # ramdump:NAME  main RAM (4 MB) -> caps/NAME.ram

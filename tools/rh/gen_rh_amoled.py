@@ -306,14 +306,39 @@ def pages(loaded):
                         skipped += 1          # a one-colour row can't be told from empty memory: not searched for
                         continue
                     per_sig[screens[name]['sig']][(row_id(v), row_id(want))] = True
+    # several of the owner's pictures can share a fingerprint (the bag's pockets: the same tile maps, each pocket's
+    # colours copied in by the game from its own palette rows). What they disagree on is left to the game (the palette
+    # files carry each state's colours): row versions wanted differently, index patches with different colours, tile
+    # patches not in all of them.
+    group = collections.defaultdict(list)
+    for name, sc in screens.items():
+        group[sc['sig']].append(name)
+    for sg, names in group.items():
+        if len(names) < 2:
+            continue
+        wants = collections.defaultdict(set)
+        for v, w in per_sig.get(sg, {}):
+            wants[v].add(w)
+        for v, ws in wants.items():
+            if len(ws) > 1:
+                for w in ws:
+                    per_sig[sg].pop((v, w), None)
     vpatch = collections.defaultdict(list)     # fingerprint -> tile patches (see src/rh_theme.c TilePatches)
-    for name, sc in screens.items():
-        for addr, half, frm, to in sc.get('vpatch', []):
-            vpatch[sc['sig']].append((addr - 0x06000000) | half << 23 | frm << 24 | to << 28)
+    for sg, names in group.items():
+        sets = [{(addr - 0x06000000) | half << 23 | frm << 24 | to << 28 for addr, half, frm, to in screens[n].get('vpatch', [])}
+                for n in names]
+        vpatch[sg] = sorted(set.intersection(*sets)) if sets else []
     ipatch = collections.defaultdict(dict)     # fingerprint -> {palette RAM index: colour} (src/rh_theme.c SetIndex)
-    for name, sc in screens.items():
-        for i, c in sc.get('ipatch', []):
-            ipatch[sc['sig']][i] = c
+    for sg, names in group.items():
+        cols = collections.defaultdict(set)
+        for n in names:
+            for i, c in screens[n].get('ipatch', []):
+                cols[i].add(c)
+        ipatch[sg] = {i: next(iter(cs)) for i, cs in cols.items() if len(cs) == 1}
+        # colour links (tools/rh/amoled/learn.py): the entry takes another entry's colour each frame (bit 31)
+        links = [set(map(tuple, screens[n].get('link', []))) for n in names]
+        for i, src in set.intersection(*links) if links else ():
+            ipatch[sg][i] = 0x80000000 | src
     regs = collections.defaultdict(dict)       # fingerprint -> {register offset from 0x04000000: value}
     for name, sc in screens.items():
         for a, v in sc.get('regs', []):
@@ -335,7 +360,8 @@ def pages(loaded):
         offs.append(base_off + len(data))
         pairs = list(per_sig.get(sg, {}))
         data += struct.pack('<I', len(pairs)) + b''.join(struct.pack('<II', a, b) for a, b in pairs)
-        vp = sorted(set(vpatch.get(sg, [])), key=lambda v: (v & 0x7FFFFF, v))     # by address (ScreenSig searches it)
+        vp = sorted(set(vpatch.get(sg, [])), key=lambda v: (v & 0x7FFFFF, v))[:8192]     # by address (ScreenSig searches
+        # it); the theme loads at most 8192 per screen (more: the first 8192, not none)
         data += struct.pack('<I', len(vp)) + b''.join(struct.pack('<I', v) for v in vp)
         ip = sorted(ipatch.get(sg, {}).items())
         data += struct.pack('<I', len(ip)) + b''.join(struct.pack('<I', i << 16 | c) for i, c in ip)

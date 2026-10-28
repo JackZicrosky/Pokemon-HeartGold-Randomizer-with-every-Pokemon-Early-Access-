@@ -67,7 +67,9 @@ for f in sorted(glob.glob(A + '[0-9]*.png')):
     if name in FORCE:
         best = FORCE[name]
         bn = 98304 - ImageChops.difference(d, defs[best]).convert('L').histogram()[0]
-    if best is None or bn > 70000 or not os.path.exists(CAPS + 'id_' + best + '.json'):
+    # (a capture more than 20% different is another screen, not this one in another frame: its fingerprint would
+    # carry the picture's colours to the wrong screen)
+    if best is None or bn > 98304 // 5 or not os.path.exists(CAPS + 'id_' + best + '.json'):
         continue
     MATCH[name] = best
     log = json.load(open(CAPS + 'id_' + best + '.json'))
@@ -99,6 +101,19 @@ for f in sorted(glob.glob(A + '[0-9]*.png')):
         if dp != op: changed += 1
     report.append('%-38s <- %-10s diff=%5d changed=%5d explained=%5d (%d%%)' % (name, best, bn, changed, ok, 100 * ok // max(1, changed)))
 print('\n'.join(report))
+# the battle HP boxes (narc 8 file 71): entries 2 and 14 also colour the box text, which is now an overlay with its own
+# colours (src/battle/rh_hptext.c, white / (11,11,11)): the text's votes go, the box art's colours stay
+HP_TEXT = (31 | 31 << 5 | 31 << 10, 11 | 11 << 5 | 11 << 10)
+for votes_ in [cvotes] + list(ctx_votes.values()):
+    for e in list(votes_):
+        if e[0] == 8 and e[1] == 71 and e[2] % 16 in (2, 14):
+            for c in HP_TEXT:
+                votes_[e].pop(c, None)
+for sc_ in pix:
+    for e in list(pix[sc_]):
+        if e[0] == 8 and e[1] == 71 and e[2] % 16 in (2, 14):
+            for c in HP_TEXT:
+                pix[sc_][e].pop(c, None)
 out = {'%d,%d,%d@%d' % e: dict(v) for e, v in cvotes.items()}
 
 json.dump(out, open(sys.argv[1], 'w'))
@@ -118,6 +133,8 @@ used = collections.defaultdict(set)                  # (narc, file) -> entries s
 for (n, f, i, ctx) in cvotes:
     used[(n, f)].add(i)
 spare = {}                                           # (narc, file, row, colour) -> spare index in the row
+spare8 = {}                                          # (screen, palette base, colour) -> spare index (256-colour BGs)
+taken8 = collections.defaultdict(set)
 taken = collections.defaultdict(set)                 # (narc, file, row) -> spare indices handed out
 nopatch = collections.Counter()
 RUNTIME_MAJOR = {}                                  # entry -> colour of its runtime-drawn pixels (text)
@@ -139,7 +156,7 @@ for sc, ents in pix.items():
     for yy in range(384):
         for xx in range(256):
             q = scr[yy // 192][yy % 192][xx]
-            if q is not None and q.get('half') is not None:
+            if q is not None and q['kind'] in ('bg', 'obj') and q.get('vram') is not None:
                 op = o_img.getpixel((xx, yy)); tile_want[(q['vram'], q['half'])][(o1(op[0]), o1(op[1]), o1(op[2]))] += 1
     for (n, f, i, ctx), cols in ents.items():
         if len(cols) < 2: continue
@@ -152,6 +169,10 @@ for sc, ents in pix.items():
                 if q is not None and q.get('half') is not None and not static_tile(bid, q['vram']): n_ += 1
             return n_
         rt = {col: runtime_px(pts) for col, pts in cols.items()}
+        # (the battle HP boxes, narc 8 file 71: their text is an overlay with colours of its own, src/battle/rh_hptext.c;
+        # the entries keep the box art's colours)
+        if (n, f) == (8, 71) and i % 16 in (2, 14):
+            rt = {col: 0 for col in cols}
         if max(rt.values()) > 0:
             major = max(cols, key=lambda c: (rt[c], len(cols[c])))
             screens[sc]['cols']['%d,%d,%d@%d' % (n, f, i, ctx)] = major
@@ -172,27 +193,51 @@ for sc, ents in pix.items():
             if key not in spare:
                 free = [j for j in range(1, 16) if j not in taken[(sc, n, f, row)]
                         and (base | j) not in shown_idx] if base is not None else []
-                if not free:
-                    nopatch['no spare entry'] += len(pts); continue
-                spare[key] = free[0]; taken[(sc, n, f, row)].add(free[0])
-            j = spare[key]
+                if free:
+                    spare[key] = free[0]; taken[(sc, n, f, row)].add(free[0])
+            j = spare.get(key)                        # (None: no spare in the 16-colour row; 256-colour pixels still can)
             got = 0
             for k in pts:
                 x, y = k % 256, k // 256
                 r = scr[y // 192][y % 192][x] if fit[y // 192] >= 0.85 else None     # (only on a reliably rendered screen)
+                if r is not None and r['kind'] == 'bg' and r.get('half') is None and r.get('vram') is not None:
+                    # a 256-colour background pixel: its byte points at a spare index of the 256 colours (one this
+                    # screen doesn't show), both nibbles patched
+                    if dsrender.shown(bid, r) != tuple(v >> 3 for v in idshot.getpixel((x, y))):
+                        continue
+                    tw = tile_want[(r['vram'], None)]
+                    if tw and (len(tw) > 1 or tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31)):
+                        nopatch['tile drawn elsewhere in another colour'] += 1; continue
+                    if not static_tile(bid, r['vram']):
+                        nopatch['runtime-drawn tile (text, numbers, sprites)'] += 1; continue
+                    pb = r['idx'] & ~255; key8 = (sc, pb, col)
+                    if key8 not in spare8:
+                        free8 = [v for v in range(255, 0, -1) if (pb | v) not in shown_idx and (pb | v) not in taken8[(sc, pb)]]
+                        if not free8:
+                            nopatch['no spare entry'] += 1; continue
+                        spare8[key8] = free8[0]; taken8[(sc, pb)].add(free8[0])
+                    v8, j8 = r['idx'] & 255, spare8[key8]
+                    patches.add((r['vram'], 0, v8 & 15, j8 & 15)); patches.add((r['vram'], 1, v8 >> 4, j8 >> 4))
+                    spare_ip[sc][pb | j8] = col
+                    got += 1
+                    continue
                 if r is None or r['kind'] not in ('bg', 'obj') or r.get('half') is None or r['idx'] % 16 != i % 16:
-                    continue                          # not a 4bpp background / sprite pixel of this entry (3D, 8bpp, ...)
+                    continue                          # not a 4bpp background / sprite pixel of this entry (3D, 8bpp sprite, ...)
+                if j is None:
+                    nopatch['no spare entry'] += 1; continue
                 if dsrender.shown(bid, r) != tuple(v >> 3 for v in idshot.getpixel((x, y))):
                     continue                          # the render doesn't match the game at this pixel: don't touch it
                 tw = tile_want[(r['vram'], r['half'])]
-                if sc not in NOMAP and tw and tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31):
+                # (every place the tile pixel is drawn must want that colour: a tile drawn elsewhere in the owner's other
+                # colour, e.g. mirrored halves of a picture, gets map patches per cell instead)
+                if sc not in NOMAP and tw and (len(tw) > 1 or tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31)):
                     nopatch['tile drawn elsewhere in another colour'] += 1; continue
                 if not static_tile(bid, r['vram']):
                     nopatch['runtime-drawn tile (text, numbers, sprites)'] += 1; continue
                 patches.add((r['vram'], r['half'], i % 16, j)); got += 1
                 spare_ip[sc][(r['idx'] & ~15) | j] = col          # the spare entry's colour, straight into palette RAM
             nopatch['not a 4bpp tile pixel'] += len(pts) - got
-            if got:
+            if got and j is not None:
                 screens[sc]['cols']['%d,%d,%d@%d' % (n, f, row * 16 + j, ctx)] = int(''.join(map(str, [col])) if isinstance(col, int) else col)
     screens[sc]['vpatch'] = sorted(patches)
 print('tile patches:', sum(len(s_['vpatch']) for s_ in screens.values() if 'vpatch' in s_), 'not patchable px:', dict(nopatch))
@@ -214,6 +259,9 @@ for sc in screens:
         continue
     o = Image.open(A + sc).convert('RGB'); d = Image.open(D + sc).convert('RGB'); dc = defs.get(cap)
     want = collections.defaultdict(collections.Counter)
+    tpatch = {(a_, h_): (f_, t_) for a_, h_, f_, t_ in screens[sc].get('vpatch', [])}
+    cellpx = collections.defaultdict(list)       # map entry -> [(tile byte, half, palette index, colour wanted)]
+    kept = collections.Counter()                 # idx -> pixels where the owner kept the game's colour (and AMOLED has it)
     cellw = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))   # map entry -> idx -> colours
     cellv = {}
     idlog = json.load(open(CAPS + 'id_' + cap + '.json')) if os.path.exists(CAPS + 'id_' + cap + '.json') else None
@@ -270,6 +318,16 @@ for sc in screens:
             g = shot.getpixel((x, y))
             if dsrender.shown(b, px) != tuple(v >> 3 for v in g):
                 ipstat['render differs (3D, affine sprite...)'] += 1; continue
+            # (the capture shows the game's tiles; this screen's tile patches move some pixels to spare entries)
+            if px.get('vram') is not None and tpatch:
+                if px.get('half') is not None:
+                    tp = tpatch.get((px['vram'], px['half']))
+                    if tp is not None and px['idx'] % 16 == tp[0]:
+                        px = dict(px); px['idx'] = (px['idx'] & ~15) | tp[1]
+                else:
+                    lo, hi = tpatch.get((px['vram'], 0)), tpatch.get((px['vram'], 1))
+                    if lo is not None and hi is not None and px['idx'] % 256 == lo[0] | hi[0] << 4:
+                        px = dict(px); px['idx'] = (px['idx'] & ~255) | lo[1] | hi[1] << 4
             op = o.getpixel((x, y)); ow = (o1(op[0]), o1(op[1]), o1(op[2]))
             px = game_effect(px, x, y)
             if off[y // 192]:
@@ -281,12 +339,26 @@ for sc in screens:
                 ic = c5(idshot_ip.getpixel((x, y))); slot = ic >> 8
                 if slot < min(64, idlog['count']) and not ui_file(idlog['narc'][slot], idlog['file'][slot] & 0xFFF, learned_files):
                     ipstat['not a UI palette (art, battle background)'] += 1; continue
+            if rowfile.get(px['idx'] // 16) == (8, 71) and px['idx'] % 16 in (2, 14) and (t[0] | t[1] << 5 | t[2] << 10) in HP_TEXT:
+                continue                              # (HP box text: the overlay's, see above)
             want[px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
-            if px.get('map') is not None:
-                cellv[px['map']] = px.get('vram')
-                cellw[px['map']][px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
+            # (the owner kept the game's colour here, and the AMOLED build shows it: a colour the game may change by
+            # itself, e.g. the battle background by time of day, is left to the game)
+            dp = d.getpixel((x, y))
+            if ow == tuple(v >> 3 for v in dp) and tuple(v >> 3 for v in g) == ow:
+                kept[px['idx']] += 1
+            # (the AMOLED captures are made without the screen pages, NOPAGES=1: cells and tiles as the game drew them)
+            qc = px
+            if qc is not None and qc.get('map') is not None:
+                cellv[qc['map']] = qc.get('vram')
+                cellw[qc['map']][qc['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
+                if qc.get('half') is not None:
+                    cellpx[qc['map']].append((qc['vram'], qc['half'], qc['idx'], t[0] | t[1] << 5 | t[2] << 10))
     ip = []
     for idx, cnt in want.items():              # every entry the screen shows (undone when the screen changes)
+        # (only rows no themed palette file fills: the theme's own palette colours need their patches)
+        if kept[idx] == sum(cnt.values()) and idx // 16 not in rowfile:
+            ipstat['kept by the owner: left to the game'] += 1; continue
         ip.append((idx, cnt.most_common(1)[0][0]))
     # map patches: a background cell (one tile map entry) whose pixels want, for one of its entries, another colour
     # than the screen gives that entry (a tile drawn in several places, coloured differently by the owner) is pointed
@@ -294,6 +366,7 @@ for sc in screens:
     major = {i: c.most_common(1)[0][0] for i, c in want.items()}
     shown_rows = {q['idx'] // 16 for half in scr for line in half for q in line if q}
     groups, taken_rows = {}, set()
+    clone_cells, clone_spare, clone_taken, used_tiles, mapped = set(), {}, set(), {}, set()
     for maddr, ents in (sorted(cellw.items()) if sc not in NOMAP else []):
         ov = {}
         for i, cnt in ents.items():
@@ -301,25 +374,154 @@ for sc in screens:
             if c != major.get(i) and k >= 2 and 2 * k > sum(cnt.values()):
                 ov[i % 16] = c
         if not ov: continue
-        if cellv.get(maddr) is None or not static_tile(b, cellv[maddr]):
-            ipstat['map patch: runtime-drawn tile'] += 1; continue
+        # (runtime-drawn tiles too: a map patch only points the cell at another palette row, its pixels stay what the
+        # game drew; the screen's fingerprint includes the tile maps, so the cell is that same button / label)
+        if cellv.get(maddr) is None:
+            ipstat['map patch: no tile'] += 1; continue
         base = next(iter(ents)) & ~15; eb = base & ~255
         key = (base, tuple(sorted(ov.items())))
         if key not in groups:
             free = [r for r in range(1, 16) if (eb // 16 + r) not in shown_rows and (eb // 16 + r) not in taken_rows
                     and (eb // 16 + r) not in rowfile]
             if not free:
-                ipstat['map patch: no free row'] += 1; continue
+                clone_cells.add(maddr)
+                ipstat['map patch: no free row (tile copy instead)'] += 1; continue
             r = eb // 16 + free[0]; taken_rows.add(r); groups[key] = r
             for j in range(16):
                 ip.append((r * 16 + j, ov.get(j, major.get(base + j, dsrender.colour(b, base + j)))))
         screens[sc].setdefault('vpatch', []).append((maddr + 1, 1, (base - eb) // 16, groups[key] - eb // 16))
+        mapped.add(maddr)
         ipstat['map patches'] += 1
     ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files)]
     done = {i for i, _ in ip}
     ip += [(i, c) for i, c in spare_ip.get(sc, {}).items() if i not in done]
+    # tile copies: a cell (of the game's own graphics) whose pixels want colours its tile can't give where it is
+    # (no free palette row for a map patch, or one entry wanted in two colours inside the cell: a gradient drawn over
+    # a flat area) gets a copy of its tile in a tile slot no map uses, its pixels pointed at the entries of the row
+    # that have the colours wanted (or a spare entry), and the cell pointed at the copy. All as tile patches (the copy
+    # is written into a blank tile; the cell's map entry gets the copy's tile number).
+    if sc not in NOMAP:
+        vid = b
+        def rd(addr, n):
+            o = (dsrender.O_BGM + addr - 0x06000000) if addr < 0x06200000 else (dsrender.O_BGS + addr - 0x06200000)
+            return vid[o:o + n]
+        shown_idx_am = {q['idx'] for half_ in scr for line in half_ for q in line if q}
+        # the colour every entry will show on this screen: its index patch, else what the game loads (this capture)
+        final = {i: dsrender.colour(b, i) & 0x7FFF for i in range(1024)}
+        final.update(dict(ip)); final_set = {i for i, _ in ip}
+        for maddr in sorted(cellpx):
+            pts = cellpx[maddr]
+            ents = cellw[maddr]
+            mixed = any(len(cnt) > 1 for cnt in ents.values())
+            if maddr not in clone_cells and not (mixed and any(c != final.get(i) for i, cnt in ents.items() for c in cnt)):
+                continue
+            if maddr in mapped:
+                continue                              # (pointed at a palette row of its own already)
+            if not all(static_tile(vid, v) for v, _, _, _ in pts):
+                ipstat['tile copy: runtime-drawn tile'] += 1; continue
+            entry = int.from_bytes(rd(maddr, 2), 'little'); tile = entry & 0x3FF
+            tbase = pts[0][0] & ~31
+            cbase = tbase - tile * 32
+            row = pts[0][2] & ~15
+            # each pixel: the entry of the row that has the colour wanted
+            new = bytearray(rd(tbase, 32)); changed = False; ok = True
+            for k in range(64):                       # (the tile's own patches go with the copy)
+                tp = tpatch.get((tbase + k // 2, k & 1))
+                if tp is not None and (new[k // 2] >> (4 * (k & 1)) & 15) == tp[0]:
+                    new[k // 2] = (new[k // 2] & (0xF0 if k & 1 == 0 else 0x0F)) | tp[1] << (4 * (k & 1))
+            for v, h, idx, w in pts:
+                if final.get(idx) == w:
+                    continue
+                e = next((j for j in range(1, 16) if final.get(row | j) == w), None)
+                if e is None:
+                    e = clone_spare.get((row, w))
+                    if e is None:
+                        fr = [j for j in range(15, 0, -1) if (row | j) not in shown_idx_am and (row | j) not in clone_taken
+                              and (row | j) not in final_set]
+                        if not fr:
+                            ok = False; break
+                        e = fr[0]; clone_taken.add(row | e); clone_spare[(row, w)] = e; ip.append((row | e, w)); final[row | e] = w
+                off = v - tbase
+                new[off] = (new[off] & 0xF0) | e if h == 0 else (new[off] & 0x0F) | e << 4
+                changed = True
+            if not ok:
+                ipstat['tile copy: no spare entry'] += 1; continue
+            if not changed:
+                continue
+            # a blank tile slot no map of this engine's backgrounds points at
+            if cbase not in used_tiles:
+                eng = 0 if maddr < 0x06200000 else 1
+                ref = set()
+                io = vid[0:0x70] if eng == 0 else vid[0x70:0xE0]
+                disp = int.from_bytes(io[0:4], 'little')
+                for bg in range(4):
+                    if not disp & (0x100 << bg): continue
+                    cnt = int.from_bytes(io[8 + 2 * bg:10 + 2 * bg], 'little')
+                    mb = (0x06000000 + ((disp >> 27) & 7) * 0x10000 if eng == 0 else 0x06200000) + ((cnt >> 8) & 31) * 0x800
+                    cb = (0x06000000 + ((disp >> 24) & 7) * 0x10000 if eng == 0 else 0x06200000) + ((cnt >> 2) & 15) * 0x4000
+                    size = {0: 0x800, 1: 0x1000, 2: 0x1000, 3: 0x2000}[cnt >> 14]
+                    m = rd(mb, size)
+                    for q in range(0, len(m), 2):
+                        ref.add(cb + (int.from_bytes(m[q:q + 2], 'little') & 0x3FF) * 32)
+                top = 0x06080000 if eng == 0 else 0x06220000
+                # (never inside a tile map: maps share the VRAM with the tile graphics, and an empty part of a map
+                # looks like a blank tile. Every background's map, shown or not, whole size)
+                maps = []
+                for bg in range(4):
+                    cnt = int.from_bytes(io[8 + 2 * bg:10 + 2 * bg], 'little')
+                    mb = (0x06000000 + ((disp >> 27) & 7) * 0x10000 if eng == 0 else 0x06200000) + ((cnt >> 8) & 31) * 0x800
+                    maps.append((mb, mb + {0: 0x800, 1: 0x1000, 2: 0x1000, 3: 0x2000}[cnt >> 14]))
+                used_tiles[cbase] = [cbase + t * 32 for t in range(1023, 0, -1)
+                                     if cbase + t * 32 + 32 <= top and cbase + t * 32 not in ref and not any(rd(cbase + t * 32, 32))
+                                     and not any(a_ <= cbase + t * 32 < b_ for a_, b_ in maps)]
+            if not used_tiles[cbase]:
+                ipstat['tile copy: no blank tile'] += 1; continue
+            naddr = used_tiles[cbase].pop(0); ntile = (naddr - cbase) // 32
+            vp = screens[sc].setdefault('vpatch', [])
+            if len(vp) + 70 > 7500:                   # (the theme loads at most 8192 patches per screen)
+                ipstat['tile copy: screen has too many patches'] += 1; continue
+            for k in range(64):
+                val = new[k // 2] >> (4 * (k & 1)) & 15
+                if val:
+                    vp.append((naddr + k // 2, k & 1, 0, val))
+            nentry = (entry & ~0x3FF) | ntile
+            for k in range(4):
+                a_, b_ = entry >> (4 * k) & 15, nentry >> (4 * k) & 15
+                if a_ != b_:
+                    vp.append((maddr + k // 2, k & 1, a_, b_))
+            ipstat['tile copies'] += 1
     screens[sc]['ipatch'] = ip
     ipstat['patches'] += len(ip)
+# colour links: pictures of one screen (one fingerprint) that want an entry in different colours (the bag's pockets:
+# each pocket's colour) get it linked to the entry that holds that colour in each of them (the pocket's own palette
+# row, loaded by the game): the theme copies that entry's colour every frame (src/rh_theme.c IdxWant)
+by_sig = collections.defaultdict(list)
+for sc_ in screens:
+    by_sig[screens[sc_]['sig']].append(sc_)
+for sig_, names in by_sig.items():
+    if len(names) < 2:
+        continue
+    pals = {}
+    for n_ in names:
+        f_ = CAPS + 'am_' + MATCH[n_] + '.vram2'
+        if os.path.exists(f_):
+            vb = open(f_, 'rb').read()
+            pals[n_] = [dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)]
+    if len(pals) < len(names):
+        continue
+    wants = collections.defaultdict(dict)
+    for n_ in names:
+        for i_, c_ in screens[n_].get('ipatch', []):
+            wants[i_][n_] = c_
+    for i_, byn in wants.items():
+        if len(byn) < len(names) or len(set(byn.values())) < 2:
+            continue
+        src = next((s_ for s_ in range(1024) if s_ != i_ and s_ // 256 == i_ // 256 and all(pals[n_][s_] == byn[n_] for n_ in names)), None)
+        if src is None:
+            ipstat['link: no entry has the colours'] += 1; continue
+        for n_ in names:
+            screens[n_].setdefault('link', []).append((i_, src))
+        ipstat['colour links'] += 1
 print('palette index patches:', dict(ipstat))
 json.dump(screens, open('screens.json', 'w'))
 # entries whose text pixels the owner coloured differently from other pixels: every screen (file level) gets the text's

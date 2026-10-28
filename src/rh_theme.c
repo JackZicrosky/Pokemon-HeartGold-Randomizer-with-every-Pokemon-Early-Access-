@@ -112,42 +112,58 @@ static void IdColours(u32 narcId, s32 fileId, u32 first, u16 *colors, u32 n, u32
 #define AM_ANY     0xFFFFFFFF
 static u32 sArcMask[10];
 static BOOL sArcMaskLoaded;
+static u32 *sAmBlocks;      // the table's entries in blocks of AM_BLOCK: each block's first (key, context), read once
+static u32 sAmCount;
+#define AM_BLOCK 32
+static void *SafeAlloc(u32 size);
 
 // Opens the table and looks (narc, file, context) up: the file position of its colours (the table stays open), or 0
-// (closed)
+// (closed). With the blocks' first keys in memory: one read of the block, one of the entry's header.
 static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u32 *count)
 {
-    u32 hdr[AM_HEADER / 4], key = narcId << 16 | (u32)fileId, lo, hi, mid, i;
+    u32 hdr[AM_BLOCK * 3], key = narcId << 16 | (u32)fileId, i, b, n;
     if (narcId >= 320 || (sArcMaskLoaded && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
         return 0;
     FS_InitFile(file);
     if (!FS_OpenFile(file, "data/rh_amoled.bin"))
         return 0;
-    if (FS_ReadFile(file, hdr, AM_HEADER) == AM_HEADER && hdr[0] == AM_MAGIC)
+    if (sAmBlocks == NULL)
     {
+        if (FS_ReadFile(file, hdr, AM_HEADER) != AM_HEADER || hdr[0] != AM_MAGIC)
+            goto none;
         for (i = 0; i < 10; i++)
             sArcMask[i] = hdr[2 + i];
         sArcMaskLoaded = TRUE;
-        lo = 0; hi = hdr[1];
-        while (lo < hi && (sArcMask[narcId >> 5] & 1u << (narcId & 31)))
+        n = hdr[1];
+        if ((sAmBlocks = SafeAlloc((n + AM_BLOCK - 1) / AM_BLOCK * 8)) == NULL)
+            goto none;
+        for (b = 0; b * AM_BLOCK < n; b++)
         {
-            mid = (lo + hi) / 2;
-            FS_SeekFile(file, AM_HEADER + mid * 12, 0);
-            FS_ReadFile(file, hdr, 12);
-            if (hdr[0] == key && hdr[1] == ctx)
-            {
-                FS_SeekFile(file, hdr[2], 0);
-                FS_ReadFile(file, hdr + 3, 8);
-                *count = hdr[3];
-                *start = hdr[4];
-                return hdr[2] + 8;
-            }
-            if (hdr[0] < key || (hdr[0] == key && hdr[1] < ctx))
-                lo = mid + 1;
-            else
-                hi = mid;
+            FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 12, 0);
+            FS_ReadFile(file, sAmBlocks + b * 2, 8);
         }
+        sAmCount = n;
+        if (!(sArcMask[narcId >> 5] & 1u << (narcId & 31)))
+            goto none;
     }
+    // the last block starting at or before (key, ctx); then the entry in it
+    for (b = 0; (b + 1) * AM_BLOCK < sAmCount
+         && (sAmBlocks[b * 2 + 2] < key || (sAmBlocks[b * 2 + 2] == key && sAmBlocks[b * 2 + 3] <= ctx)); b++)
+        ;
+    n = sAmCount - b * AM_BLOCK < AM_BLOCK ? sAmCount - b * AM_BLOCK : AM_BLOCK;
+    FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 12, 0);
+    FS_ReadFile(file, hdr, n * 12);
+    for (i = 0; i < n; i++)
+        if (hdr[i * 3] == key && hdr[i * 3 + 1] == ctx)
+        {
+            b = hdr[i * 3 + 2];
+            FS_SeekFile(file, b, 0);
+            FS_ReadFile(file, hdr, 8);
+            *count = hdr[0];
+            *start = hdr[1];
+            return b + 8;
+        }
+none:
     FS_CloseFile(file);
     return 0;
 }
@@ -402,6 +418,9 @@ static u32 *sIndexUndo;     // (idx << 16 | colour it had) for the shown screen'
                             // then the colour palette RAM showed
 static u32 sIndexCount;
 #define IDX_MARK 0x8000     // bit 15 (unused by the hardware) on the colours the index patches write
+// an index patch's colour: its own, or (bit 31: a link) the colour another entry has now (palette RAM index in bits
+// 0-9: e.g. each bag pocket's colour, from the pocket's palette row the game loads)
+#define IdxWant(w) (((w) >> 31 ? ((vu16 *)0x05000000)[(w) & 1023] & 0x7FFF : (w) & 0x7FFF) | IDX_MARK)
 static u32 *sRegs;         // register patches of the shown screen: (offset from 0x04000000 << 16 | value)
 static u32 sRegCount;
 
@@ -537,7 +556,7 @@ static void ShowScreen(u32 sig)
                 // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
                 sIndexUndo[i] = (mid & 0x3FF0000) | (GetIndex(mid >> 16 & 1023) & 0x7FFF);
                 sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
-                SetIndex(mid >> 16 & 1023, (mid & 0x7FFF) | IDX_MARK);
+                SetIndex(mid >> 16 & 1023, IdxWant(mid));
             }
         }
         sIndexCount = sIndexUndo != NULL ? n : 0;
@@ -630,6 +649,10 @@ static void ThemeTask(void *task, void *data)
     gRhScreenSig.sig = sig;
     if (theme != RH_THEME_AMOLED)
         return;
+#if RH_TEST
+    if (gRhScreenSig.rows == 0x45474150)       // (test tools: "PAGE" = no screen pages, for the captures learn.py reads)
+        sig = 0;
+#endif
     if (sig != sLastSig)
     {
         sLastSig = sig;
@@ -680,7 +703,7 @@ static void ThemeTask(void *task, void *data)
             // the theme writes its colours with IDX_MARK: an entry without it was loaded by the game after the screen
             // showed (even in the very colour wanted), and its new colour is the one to put back on undo, not what
             // the entry held before the load (e.g. the battle intro's sky under the HP boxes)
-            u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = (sIndexUndo[sIndexCount + i] & 0x7FFF) | IDX_MARK;
+            u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = IdxWant(sIndexUndo[sIndexCount + i]);
             u32 c = GetIndex(idx);
             if (c != want)
             {
