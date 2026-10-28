@@ -7,6 +7,7 @@
 #   - battles: the wild Pokemon's gender symbol may differ (it is rolled by the game; owner: gender varies)
 # The AMOLED frame and the Default frame closest to it (+-8 frames, the theme can be frames behind) with the fewest
 # wrong pixels; proven = situation 0 and at most 9 wrong (99.99%).
+# The recordings of the neighbouring steps of a numbered sequence count too (see neighbours).
 # Writes proof3/NAME.png when not proven: owner picture | AMOLED frame | wrong in red, situation in yellow.
 import json, os, sys
 from PIL import Image, ImageChops, ImageFilter
@@ -36,14 +37,20 @@ def gmask(*ims):
                 if tuple(v >> 3 for v in px[x, y]) in GENDER: gp[x, y] = 255
     return ImageChops.invert(g.filter(ImageFilter.MaxFilter(7)))
 names = sys.argv[1:] or sorted(M)
-ok = 0
-for name in names:
-    cap = M[name]
+def neighbours(cap):
+    # the recordings of the steps before / after too (a numbered sequence, e.g. the naming screen's letters: the
+    # recordings can run a key press ahead of the captures); the situation check still demands the owner's moment
+    import re
+    m = re.match(r'(.*?)(\d+)$', cap)
+    out = [cap]
+    if m:
+        w, k = len(m.group(2)), int(m.group(2))
+        out += ['%s%0*d' % (m.group(1), w, k + dk) for dk in (-1, 1) if k + dk >= 0]
+    return out
+def score_cap(name, cap, od, oa, changed, kept):
     dl, al = load(cap, 'def'), load(cap, 'am')
     if dl is None or al is None:
-        print('%-40s %-16s no recording' % (name, cap)); continue
-    od = q5(Image.open(D + name).convert('RGB')); oa = Image.open(A + name).convert('RGB').point(lambda v: o1(v) << 3)
-    changed = neq(od, oa); kept = ImageChops.invert(changed)
+        return None
     battle = name[:2].isdigit() and 59 <= int(name[:2]) <= 72
     best = None
     gcache = {}
@@ -62,12 +69,20 @@ for name in names:
                 wrong = ImageChops.multiply(wrong, gm); sit = ImageChops.multiply(sit, gm)
             score = (count(sit) + count(wrong), count(sit), count(wrong))
             if best is None or score < best[0]:
-                best = (score, sit, wrong, i, j)
-    (_, ns, nw), sit, wrong, i, j = best
+                best = (score, sit, wrong, aget(i), cap)
+    return best
+ok = 0
+for name in names:
+    od = q5(Image.open(D + name).convert('RGB')); oa = Image.open(A + name).convert('RGB').point(lambda v: o1(v) << 3)
+    changed = neq(od, oa); kept = ImageChops.invert(changed)
+    res = [r for r in (score_cap(name, c, od, oa, changed, kept) for c in neighbours(M[name])) if r is not None]
+    if not res:
+        print('%-40s %-16s no recording' % (name, M[name])); continue
+    (_, ns, nw), sit, wrong, am, cap = min(res, key=lambda r: r[0])
     good = ns == 0 and nw <= 9
     ok += good
     if not good:
-        am = aget(i); im = Image.new('RGB', (768, 384)); im.paste(oa, (0, 0)); im.paste(am, (256, 0))
+        im = Image.new('RGB', (768, 384)); im.paste(oa, (0, 0)); im.paste(am, (256, 0))
         red = am.copy(); red.paste((255, 0, 0), mask=wrong); red.paste((255, 255, 0), mask=sit); im.paste(red, (512, 0))
         im.save('proof3/%s' % name)
     print('%-40s %-16s situation %6d  wrong %6d  %8.4f%%  %s' % (name, cap, ns, nw, 100 * (1 - nw / 98304), 'PROVEN' if good else ''), flush=True)

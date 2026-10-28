@@ -159,6 +159,72 @@ for k in sys.argv[3:]:
                     n += 1
             i = ram.find(pat, i + 1)
         print('setmon patched', n)
+    elif k.startswith('setnature:'):             # setnature:N  every RAM party copy: the first Pokemon gets nature N
+        import struct                             # (personality % 25): a personality with the same gender byte, ability
+        want = int(k[10:])                        # bit and block order, not shiny; the battle stats re-encrypted with it
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        def crypt(buf, seed):
+            out = bytearray(buf); x = seed
+            for i in range(0, len(buf), 2):
+                x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+                struct.pack_into('<H', out, i, struct.unpack_from('<H', buf, i)[0] ^ (x >> 16))
+            return out
+        ORDER = ['ABCD','ABDC','ACBD','ACDB','ADBC','ADCB','BACD','BADC','BCAD','BCDA','BDAC','BDCA',
+                 'CABD','CADB','CBAD','CBDA','CDAB','CDBA','DABC','DACB','DBAC','DBCA','DCAB','DCBA']
+        pat = struct.pack('<I', 6); n = 0; i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                d = crypt(ram[o + 8:o + 136], chk)
+                if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
+                    a = ORDER[((pid >> 13) & 31) % 24].index('A') * 32
+                    otid = struct.unpack_from('<I', d, a + 4)[0]
+                    keep = 0x0003E0FF                     # gender byte (0-7), ability bit (0), block order (13-17)
+                    new = None
+                    for v in range(1 << 15):
+                        cand = (pid & keep) | (v & 0x1F) << 8 | (v >> 5) << 18
+                        if cand % 25 == want and ((cand >> 16) ^ (cand & 0xFFFF) ^ (otid >> 16) ^ (otid & 0xFFFF)) >= 8:
+                            new = cand; break
+                    if new is not None:
+                        ext = crypt(ram[o + 136:o + 236], pid)
+                        struct.pack_into('<I', ram, o, new)
+                        ram[o + 136:o + 236] = crypt(ext, new)
+                        for j in range(o, o + 236): h.emu.memory.write_byte(0x02000000 + j, ram[j])
+                        n += 1
+            i = ram.find(pat, i + 1)
+        print('setnature patched', n)
+    elif k.startswith('pkset:'):                 # pkset:BLOCK,OFFSET,HEXBYTES  every RAM party copy: bytes of the first
+        import struct                             # Pokemon's block A-D (decrypted), checksum and encryption redone
+        blk, off, hx = k[6:].split(',')
+        val = bytes.fromhex(hx); off = int(off, 16)
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        def crypt(buf, seed):
+            out = bytearray(buf); x = seed
+            for i in range(0, len(buf), 2):
+                x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+                struct.pack_into('<H', out, i, struct.unpack_from('<H', buf, i)[0] ^ (x >> 16))
+            return out
+        ORDER = ['ABCD','ABDC','ACBD','ACDB','ADBC','ADCB','BACD','BADC','BCAD','BCDA','BDAC','BDCA',
+                 'CABD','CADB','CBAD','CBDA','CDAB','CDBA','DABC','DACB','DBAC','DBCA','DCAB','DCBA']
+        pat = struct.pack('<I', 6); n = 0; i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                d = crypt(ram[o + 8:o + 136], chk)
+                if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
+                    b = ORDER[((pid >> 13) & 31) % 24].index(blk) * 32
+                    d[b + off:b + off + len(val)] = val
+                    chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
+                    struct.pack_into('<H', ram, o + 6, chk2)
+                    ram[o + 8:o + 136] = crypt(d, chk2)
+                    for j in range(o + 6, o + 136): h.emu.memory.write_byte(0x02000000 + j, ram[j])
+                    n += 1
+            i = ram.find(pat, i + 1)
+        print('pkset patched', n)
     elif k.startswith('rec:'):                   # rec:NAME[:FRAMES[:INPUT]]  every frame for FRAMES frames (default 300 = 5 s)
         # INPUT (held for the first 6 frames): a key (A B X Y U D l r S s L R) or Tx_y (touch). Frames identical to an
         # earlier one of the same recording are stored once; index.json gives the stored frame of every frame.
