@@ -51,7 +51,7 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'e_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'e_bp0'}
+FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'e_bp0'}
 for f in sorted(glob.glob(A + '[0-9]*.png')):
     name = os.path.basename(f)
     if not os.path.exists(D + name): continue

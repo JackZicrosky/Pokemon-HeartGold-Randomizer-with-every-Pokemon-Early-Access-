@@ -124,6 +124,41 @@ for k in sys.argv[3:]:
                     print('give4 party at', hex(0x02000000 + i), 'moves', moves)
             i = ram.find(pat, i + 1)
         print('give4 patched', n)
+    elif k.startswith('setmon:'):                # setmon:HP,ATK,DEF,SPE,SPA,SPD[,PP1]  every RAM party copy: the first
+        import struct                             # Pokemon's current HP and stats (and its first move's PP)
+        vals = [int(v) for v in k[7:].split(',')]
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        def crypt(buf, seed):
+            out = bytearray(buf); x = seed
+            for i in range(0, len(buf), 2):
+                x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+                struct.pack_into('<H', out, i, struct.unpack_from('<H', buf, i)[0] ^ (x >> 16))
+            return out
+        ORDER = ['ABCD','ABDC','ACBD','ACDB','ADBC','ADCB','BACD','BADC','BCAD','BCDA','BDAC','BDCA',
+                 'CABD','CADB','CBAD','CBDA','CDAB','CDBA','DABC','DACB','DBAC','DBCA','DCAB','DCBA']
+        pat = struct.pack('<I', 6); n = 0; i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                d = crypt(ram[o + 8:o + 136], chk)
+                if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
+                    ext = crypt(ram[o + 136:o + 236], pid)
+                    struct.pack_into('<H', ext, 6, vals[0])                     # current HP
+                    for j, v in enumerate(vals[1:6]):
+                        struct.pack_into('<H', ext, 10 + 2 * j, v)             # attack, defense, speed, sp. atk, sp. def
+                    ram[o + 136:o + 236] = crypt(ext, pid)
+                    if len(vals) > 6:
+                        b = ORDER[((pid >> 13) & 31) % 24].index('B') * 32
+                        d[b + 8] = vals[6]
+                        chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
+                        struct.pack_into('<H', ram, o + 6, chk2)
+                        ram[o + 8:o + 136] = crypt(d, chk2)
+                    for j in range(o + 6, o + 236): h.emu.memory.write_byte(0x02000000 + j, ram[j])
+                    n += 1
+            i = ram.find(pat, i + 1)
+        print('setmon patched', n)
     elif k.startswith('rec:'):                   # rec:NAME[:FRAMES[:INPUT]]  every frame for FRAMES frames (default 300 = 5 s)
         # INPUT (held for the first 6 frames): a key (A B X Y U D l r S s L R) or Tx_y (touch). Frames identical to an
         # earlier one of the same recording are stored once; index.json gives the stored frame of every frame.
@@ -192,6 +227,27 @@ for k in sys.argv[3:]:
         rd = lambda a, n: bytes(h.emu.memory.read(a, a + n, 1, False))[:n]
         blob = rd(0x04000000, 0x70) + rd(0x04001000, 0x70) + rd(0x05000000, 0x800) + rd(0x06000000, 0x80000) + rd(0x06200000, 0x20000)
         open('%s/%s.vram' % (OUT, k[5:]), 'wb').write(blob)
+    elif k.startswith('waitobj:'):                # waitobj:X,Y  wait (up to 120 frames) until a shown sprite covers
+        x, y = map(int, k[8:].split(','))          # screen pixel X,Y (Y 192+: bottom screen): blinking icons, any theme
+        base = 0x07000000 if y < 192 else 0x07000400
+        yy = y % 192
+        sizes = {(0, 0): (8, 8), (0, 1): (16, 16), (0, 2): (32, 32), (0, 3): (64, 64), (1, 0): (16, 8), (1, 1): (32, 8),
+                 (1, 2): (32, 16), (1, 3): (64, 32), (2, 0): (8, 16), (2, 1): (8, 32), (2, 2): (16, 32), (2, 3): (32, 64)}
+        for _ in range(120):
+            o = bytes(h.emu.memory.read(base, base + 0x3FF, 1, False))
+            hit = False
+            for i in range(128):
+                a0, a1 = o[i * 8] | o[i * 8 + 1] << 8, o[i * 8 + 2] | o[i * 8 + 3] << 8
+                if a0 & 0x300 == 0x200 or (a0 >> 14) == 3: continue
+                w, hh = sizes[(a0 >> 14, a1 >> 14)]
+                if a0 & 0x300 == 0x300: w, hh = w * 2, hh * 2      # (affine double size)
+                sy, sx = a0 & 255, a1 & 511
+                if sy >= 192: sy -= 256
+                if sx >= 256: sx -= 512
+                if sx <= x < sx + w and sy <= yy < sy + hh:
+                    hit = True; break
+            if hit: break
+            h.run(1)
     elif k == 'nopages':                          # test builds: the AMOLED theme without its screen pages
         ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
         for i, v in enumerate((0x45474150).to_bytes(4, 'little')):

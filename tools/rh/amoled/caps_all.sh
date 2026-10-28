@@ -6,8 +6,14 @@ export RTC="2026-10-24 03:23"
 F='^end|WARN|Error|Trace|give4'
 # battle savestates (made once per build, in def mode: same battle in every mode)
 if [ "$MKSTATES" = 1 ]; then
-  $P cap.py def r30.sav battle ssave:bpre 2>&1 | grep -E "$F"
-  $P cap.py def r30.sav give4:52 battle ssave:bpre4 2>&1 | grep -E "$F"
+  # the owner's battles, made the same way every build: Route 30's night encounter table set in RAM (one species and
+  # level; the game makes them male here), 4 Potions in the bag, the owner's Chikorita (its stats in the pictures)
+  $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,a300a300a300a300a300a300a300a300a300a300a300a300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 battle ssave:bpre 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,a300a300a300a300a300a300a300a300a300a300a300a300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 give4:52 W21 battle ssave:bpre4 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,a300a300a300a300a300a300a300a300a300a300a300a300 poke:0227CF72,0400 setmon:5,10,14,11,13,14,28 W21 battle ssave:bpre_hdmg 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,030303030303030303030303 poke:022ADCAC,130013001300130013001300130013001300130013001300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 battle ssave:bpre_r3 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,020202020202020202020202 poke:022ADCAC,a700a700a700a700a700a700a700a700a700a700a700a700 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 battle ssave:bpre_s2 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,130013001300130013001300130013001300130013001300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 battle ssave:bpre_rm4 2>&1 | grep -E "$F"
 fi
 for M in $MODES; do
 # field menu, Pokedex, trainer card, save, options, Pokegear, party, summary, bag
@@ -24,8 +30,15 @@ $P cap.py $M r30.sav theme X W100 T43,121 W200 B W60 idreset B W200 X W100 P43,4
 $P cap.py $M r30.sav theme idreset T43,161 W200 T30,180 W150 T128,44 W80 A W200 cap:y_g2skins T176,180 W150 cap:y_g2phone T128,180 W150 cap:y_g2map T30,180 W150 T208,44 W80 A W200 cap:y_g3skins T176,180 W150 cap:y_g3phone T128,180 W150 cap:y_g3map T30,180 W150 T48,116 W80 A W200 cap:y_g4skins T176,180 W150 cap:y_g4phone T128,180 W150 cap:y_g4map T30,180 W150 T128,116 W80 A W200 cap:y_g5skins T176,180 W150 cap:y_g5phone T128,180 W150 cap:y_g5map T30,180 W150 T208,116 W80 A W200 cap:y_g6skins T176,180 W150 cap:y_g6phone T128,180 W150 cap:y_g6map T30,180 W150 T48,44 W80 A W200 B W150 B W150 B W150 2>&1 | grep -E "$F"
 $P cap.py $M r30.sav theme idreset P43,81 cap:y_party_press rel W200 cap:y_party P64,40 cap:y_slot_press rel W100 cap:y_partymenu A W200 cap:y_sum1 R W80 R W80 cap:y_sum3 A W150 cap:y_movedetail B W150 B W100 B W100 B W150 2>&1 | grep -E "$F"
 # battle (night, the same battle in every mode)
-$P cap.py $M none sload:bpre theme idreset W150 cap:e_i1 W150 cap:e_i2 W150 cap:e_i3 W250 cap:e_cmd P128,83 cap:e_fp0 W2 cap:e_fp1 W3 cap:e_fp2 rel W300 cap:e_moves B W20 B W400 cap:e_cmd2 P40,168 cap:e_bp0 W2 cap:e_bp1 W3 cap:e_bp2 rel W400 cap:e_bag P64,42 cap:e_pocket_press rel W400 cap:e_bag_items T64,30 W400 cap:e_item 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre theme idreset W150 cap:e_i1 W150 cap:e_i2 W150 cap:e_i3 W250 cap:e_cmd P128,83 cap:e_fp0 W2 cap:e_fp1 W3 cap:e_fp2 rel W300 cap:e_moves B W20 B W400 cap:e_cmd2 P40,168 cap:e_bp0 W2 cap:e_bp1 W3 cap:e_bp2 rel W400 waitobj:220,165 cap:e_bag P64,42 cap:e_pocket_press rel W400 waitobj:220,165 cap:e_bag_items T64,30 W400 cap:e_item 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre theme idreset W700 cap:e_cmd3 P216,168 cap:e_party_press rel W400 cap:e_party T64,40 W400 cap:e_party_menu T50,172 W500 cap:e_sum R W200 cap:e_sum2 B W500 T155,172 W500 cap:e_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_hdmg theme idreset W700 cap:hd_cmd3 P216,168 cap:hd_party_press rel W400 cap:hd_party T64,40 W400 cap:hd_party_menu T50,172 W500 cap:hd_sum R W200 cap:hd_sum2 B W500 T155,172 W500 cap:hd_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_r3 theme idreset W150 cap:r3_i1 W150 cap:r3_i2 W150 cap:r3_i3 W250 cap:r3_cmd P128,83 cap:r3_fp0 W2 cap:r3_fp1 W3 cap:r3_fp2 rel W300 cap:r3_moves B W20 B W400 cap:r3_cmd2 P40,168 cap:r3_bp0 W2 cap:r3_bp1 W3 cap:r3_bp2 rel W400 waitobj:220,165 cap:r3_bag P64,42 cap:r3_pocket_press rel W400 waitobj:220,165 cap:r3_bag_items T64,30 W400 cap:r3_item 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_r3 theme idreset W700 cap:r3_cmd3 P216,168 cap:r3_party_press rel W400 cap:r3_party T64,40 W400 cap:r3_party_menu T50,172 W500 cap:r3_sum R W200 cap:r3_sum2 B W500 T155,172 W500 cap:r3_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_s2 theme idreset W150 cap:s2_i1 W150 cap:s2_i2 W150 cap:s2_i3 W250 cap:s2_cmd P128,83 cap:s2_fp0 W2 cap:s2_fp1 W3 cap:s2_fp2 rel W300 cap:s2_moves B W20 B W400 cap:s2_cmd2 P40,168 cap:s2_bp0 W2 cap:s2_bp1 W3 cap:s2_bp2 rel W400 waitobj:220,165 cap:s2_bag P64,42 cap:s2_pocket_press rel W400 waitobj:220,165 cap:s2_bag_items T64,30 W400 cap:s2_item 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_s2 theme idreset W700 cap:s2_cmd3 P216,168 cap:s2_party_press rel W400 cap:s2_party T64,40 W400 cap:s2_party_menu T50,172 W500 cap:s2_sum R W200 cap:s2_sum2 B W500 T155,172 W500 cap:s2_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_rm4 theme idreset W150 cap:rm4_i1 W150 cap:rm4_i2 W150 cap:rm4_i3 W250 cap:rm4_cmd P128,83 cap:rm4_fp0 W2 cap:rm4_fp1 W3 cap:rm4_fp2 rel W300 cap:rm4_moves B W20 B W400 cap:rm4_cmd2 P40,168 cap:rm4_bp0 W2 cap:rm4_bp1 W3 cap:rm4_bp2 rel W400 waitobj:220,165 cap:rm4_bag P64,42 cap:rm4_pocket_press rel W400 waitobj:220,165 cap:rm4_bag_items T64,30 W400 cap:rm4_item 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_rm4 theme idreset W700 cap:rm4_cmd3 P216,168 cap:rm4_party_press rel W400 cap:rm4_party T64,40 W400 cap:rm4_party_menu T50,172 W500 cap:rm4_sum R W200 cap:rm4_sum2 B W500 T155,172 W500 cap:rm4_checkmoves 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre4 theme idreset W700 T128,83 W300 cap:f_moves 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre4 theme idreset W700 P216,168 rel W400 T64,40 W400 T155,172 W500 cap:f_checkmoves 2>&1 | grep -E "$F"
 echo "mode $M done"
