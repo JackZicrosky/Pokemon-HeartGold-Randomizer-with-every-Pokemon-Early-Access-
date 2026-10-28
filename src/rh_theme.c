@@ -255,7 +255,7 @@ u32 sCmMap;                 // the battle Check Moves map re-pointed at its type
 
 static u32 ScreenSig(void)
 {
-    u32 h = 2166136261u, eng, bg, i, lo;
+    u32 h = 2166136261u, eng, bg, i, lo, low;
     for (eng = 0; eng < 2; eng++)
     {
         u32 io = eng ? 0x04001000 : 0x04000000, disp = *(vu32 *)io;
@@ -268,6 +268,15 @@ static u32 ScreenSig(void)
             cnt = *(vu16 *)(io + 8 + bg * 2);
             map = (const vu32 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
             h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
+            // tile numbers relative to the map's lowest one: text windows get their tiles where the game finds room
+            // (what was open before decides), the same screen must give the same fingerprint
+            low = 0x3FF;
+            for (i = 0; i < 0x600 / 2; i++)
+            {
+                u32 t = ((const vu16 *)map)[i] & 0x3FF;
+                if (t != 0 && t < low)
+                    low = t;
+            }
             // tile patches on the map (palette numbers / tile numbers of cells, "map patches"): hashed as the game
             // drew them. The patches are sorted by address like the map: found once, then walked along with it
             {
@@ -297,6 +306,9 @@ static u32 ScreenSig(void)
                     for (k = 12; k < 32; k += 16)
                         if ((w >> k & 15) == 7 || (w >> k & 15) == 8 || (w >> k & 15) == 10)
                             w = (w & ~(15u << k)) | 12u << k;
+                for (k = 0; k < 32; k += 16)
+                    if (w >> k & 0x3FF)
+                        w = (w & ~(0x3FFu << k)) | (((w >> k & 0x3FF) - low) & 0x3FF) << k;
                 h = (h ^ w) * 16777619u;
             }
         }
@@ -392,17 +404,33 @@ static void ReplaceRows(u32 *w, u32 *end, struct PgRow *row, u32 n, u32 bloom)
 // screen's palette version colours. Each patch: VRAM offset from 0x06000000 (bits 0-22), which half of the byte (23),
 // the entry it had (24-27), the spare one (28-31). Re-applied every frame while the screen shows (the game may redraw), undone
 // when it changes.
+static u16 *sPatchVal;       // each patched VRAM word as the theme left it (after sPatch's items), for the undo
 static void TilePatches(BOOL undo)
 {
-    u32 i;
+    u32 i, lastA = 0, ok = 0;
     for (i = 0; i < sPatchCount; i++)
     {
         u32 e = sPatch[i], a = 0x06000000 + (e & 0x7FFFFF), sh = (a & 1) * 8 + (e >> 23 & 1) * 4;
         vu16 *b = (vu16 *)(a & ~1u);             // (VRAM takes no byte writes)
         u32 from = undo ? e >> 28 & 15 : e >> 24 & 15, to = undo ? e >> 24 & 15 : e >> 28 & 15;
+        // undo only words still as the theme left them: the game may already have drawn the next screen there, and
+        // a value that happens to equal a patched one must not be "undone" (that broke the next screen's maps)
+        if (undo)
+        {
+            if ((a & ~1u) != lastA)
+            {
+                lastA = a & ~1u;
+                ok = sPatchVal == NULL || *b == sPatchVal[i];
+            }
+            if (!ok)
+                continue;
+        }
         if ((*b >> sh & 15) == from)
             *b = (u16)((*b & ~(15u << sh)) | to << sh);
     }
+    if (!undo && sPatchVal != NULL)
+        for (i = 0; i < sPatchCount; i++)
+            sPatchVal[i] = *(vu16 *)((0x06000000 + (sPatch[i] & 0x7FFFFF)) & ~1u);
 }
 
 // Palette index patches: on a screen, colour c for palette RAM entry idx (0-1023: main BG, main OBJ, sub BG, sub
@@ -547,10 +575,11 @@ static void ShowScreen(u32 sig)
     n = 0;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
     {
-        sPatch = SafeAlloc(n * 4);
+        sPatch = SafeAlloc(n * 6);
         if (sPatch != NULL)
         {
             FS_ReadFile(file, sPatch, n * 4);
+            sPatchVal = (u16 *)(sPatch + n);
             sPatchCount = n;
             gRhScreenSig.patches = n;
         }
@@ -613,6 +642,7 @@ static void ThemeTask(void *task, void *data)
         {
             TilePatches(TRUE);
             Heap_Free(sPatch);
+            sPatchVal = NULL;
             sPatch = NULL;
             sPatchCount = 0;
         }
