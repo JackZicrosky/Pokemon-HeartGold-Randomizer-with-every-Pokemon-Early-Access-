@@ -299,6 +299,75 @@ void RH_HpSync(void)
     }
 }
 
+
+// ---- moved from src/rh_theme.c (always-loaded space): battle only ----
+u32 LONG_CALL GetBuf(u32 idx, BOOL faded);    // src/rh_theme.c (always loaded: called through a register)
+void LONG_CALL SetIndex(u32 idx, u32 c);
+#define GetIndex(idx) GetBuf(idx, FALSE)
+
+// Battle move buttons. Their colours come from a table in battle overlay 6 (0x0221BA00), one 16-colour row per type
+// (Normal first, then type 18 down to 1), copied into the palette by code: no palette file to theme.
+// - FIGHT screen (owner's 61): inside dark, every type (entries 1, 13, 14), patched in the table once it is loaded.
+// - Check Moves (owner's 72): the game draws all four buttons with sub BG row 12; the owner gave each button the
+//   border of its move's type (entries 1, 2, 5, 6 = the type row's 6, 7, 8, 5). Each button's type comes from its
+//   type icon (a word of its graphics, narc 8), and the button is re-pointed at a row of its own (12, 7, 8, 10:
+//   unused on that screen), a copy of row 12 with those 4 colours.
+#define OV6_MOVE_ROWS ((u16 *)0x0221BB4C)
+static const u32 sIconWord[18] = {     // word 7 of each type's icon graphics, by type
+    0xEFEFFFF8, 0xFFF33333, 0xF2EFFF22, 0xFEEFFFBB, 0xFFEFFEF4, 0xFFF55555, 0xF7777777, 0xFFEF3333, 0xEFFECCCC,
+    0xFFFAAAAA, 0xFFF22222, 0x44EF4444, 0xFFEF2222, 0xF1EFFF11, 0xFEEEFFF8, 0x55555555, 0xFFEF4EF4, 0xAEFAAAAA,
+};
+
+u32 RH_BattleMoves(void)
+{
+    static const u8 sRow[4] = { 12, 7, 8, 10 }, sFrom[4] = { 6, 7, 8, 5 }, sTo[4] = { 1, 2, 5, 6 };
+    u16 *t = OV6_MOVE_ROWS;
+    vu16 *oam = (vu16 *)0x07000400, *map;
+    u32 i, k, sh = 5 + (*(vu32 *)0x04001000 >> 20 & 3);
+    u32 cmMap = 0;
+    if (t[0] != 0x75CD || t[2] != 0x6AD7 || t[9] != 0x7319)      // (overlay 6 not loaded)
+        return 0;
+    if (t[1] == 0x7FFF)
+        for (i = 0; i < 19; i++)
+        {
+            t[16 * i + 1] = 0x1084; t[16 * i + 13] = 0x0842; t[16 * i + 14] = 0x0C63;
+        }
+    if (*(vu16 *)0x0400100C != 0x010A)                           // (sub BG2 of the battle party screens)
+        return 0;
+    map = (vu16 *)0x06200800;
+    for (k = 0; k < 128; k++, oam += 4)
+    {
+        u32 a0 = oam[0], a1 = oam[1], x = a1 & 511, y = a0 & 255, b, ty, w;
+        const u16 *row;
+        if ((a0 & 0x300) == 0x200 || a0 >> 14 != 1 || a1 >> 14 != 2 || y < 48 || y >= 144 || (x & 127) >= 64)
+            continue;                  // (hidden, not a 32x16 icon, not on a button)
+        w = *(vu32 *)(0x06600000 + ((oam[2] & 1023) << sh) + 28);
+        for (ty = 0; ty < 18 && sIconWord[ty] != w; ty++)
+            ;
+        if (ty == 18)
+            continue;
+        b = (y >= 96) * 2 + (x >= 128);
+        row = t + 16 * (ty ? 19 - ty : 0);
+        for (i = 0; i < 16; i++)       // (only what differs: the game's fades keep working)
+        {
+            u32 c = GetIndex(512 + 12 * 16 + i);
+            for (w = 0; w < 4; w++)
+                if (sTo[w] == i)
+                    c = row[sFrom[w]];
+            if (GetIndex(512 + sRow[b] * 16 + i) != c)
+                SetIndex(512 + sRow[b] * 16 + i, c);
+        }
+        for (i = 0; i < 6 * 16 && b != 0; i++)
+        {
+            vu16 *e = map + (6 + (b >> 1) * 6 + i / 16) * 32 + (b & 1) * 16 + i % 16;
+            if (*e >> 12 == 12)
+                *e = (u16)((*e & 0x0FFF) | sRow[b] << 12);
+        }
+        cmMap = (u32)map;
+    }
+    return cmMap;
+}
+
 // the entry the theme looks for at the start of this overlay (0x023C4000)
-const u32 gRhHpTextEntry[5] __attribute__((section(".init"))) = { 0x54504852, 0x31545854, (u32)RH_HpText, (u32)RH_HpOam,
-    (u32)RH_HpSync };
+const u32 gRhHpTextEntry[6] __attribute__((section(".init"))) = { 0x54504852, 0x31545854, (u32)RH_HpText, (u32)RH_HpOam,
+    (u32)RH_HpSync, (u32)RH_BattleMoves };

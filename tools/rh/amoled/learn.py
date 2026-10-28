@@ -356,8 +356,8 @@ for sc in screens:
                     cellpx[qc['map']].append((qc['vram'], qc['half'], qc['idx'], t[0] | t[1] << 5 | t[2] << 10))
     ip = []
     for idx, cnt in want.items():              # every entry the screen shows (undone when the screen changes)
-        # (only rows no themed palette file fills: the theme's own palette colours need their patches)
-        if kept[idx] == sum(cnt.values()) and idx // 16 not in rowfile:
+        # (the AMOLED captures are made without screen pages: "AMOLED shows it" means the palette files give it)
+        if kept[idx] >= 0.9 * sum(cnt.values()):
             ipstat['kept by the owner: left to the game'] += 1; continue
         ip.append((idx, cnt.most_common(1)[0][0]))
     # map patches: a background cell (one tile map entry) whose pixels want, for one of its entries, another colour

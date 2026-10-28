@@ -114,6 +114,7 @@ static u32 sArcMask[10];
 static BOOL sArcMaskLoaded;
 static u32 *sAmBlocks;      // the table's entries in blocks of AM_BLOCK: each block's first (key, context), read once
 static u32 sAmCount;
+static u32 *sAmFile;        // the table, open
 #define AM_BLOCK 32
 static void *SafeAlloc(u32 size);
 
@@ -124,9 +125,19 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
     u32 hdr[AM_BLOCK * 3], key = narcId << 16 | (u32)fileId, i, b, n;
     if (narcId >= 320 || (sArcMaskLoaded && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
         return 0;
-    FS_InitFile(file);
-    if (!FS_OpenFile(file, "data/rh_amoled.bin"))
-        return 0;
+    if (sAmFile == NULL)                       // (opened once, kept open: opening by path costs a directory search)
+    {
+        if ((sAmFile = SafeAlloc(FSFILE_SIZE)) == NULL)
+            return 0;
+        FS_InitFile(sAmFile);
+        if (!FS_OpenFile(sAmFile, "data/rh_amoled.bin"))
+        {
+            Heap_Free(sAmFile);
+            sAmFile = NULL;
+            return 0;
+        }
+    }
+    file = sAmFile;
     if (sAmBlocks == NULL)
     {
         if (FS_ReadFile(file, hdr, AM_HEADER) != AM_HEADER || hdr[0] != AM_MAGIC)
@@ -164,7 +175,6 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
             return b + 8;
         }
 none:
-    FS_CloseFile(file);
     return 0;
 }
 
@@ -174,7 +184,7 @@ none:
 // UI palette).
 static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx)
 {
-    u32 file[FSFILE_SIZE / 4];      // FSFile (word aligned)
+    u32 *file = NULL;
     u32 theme = RHCT_UiTheme(), pos, start, count, a, b;
     if (size == 0 || (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS))
         return;
@@ -188,25 +198,23 @@ static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOO
 #if RH_TEST
     if (theme == RH_THEME_IDS)
     {
-        FS_CloseFile(file);
         if (a < b && !((a - start) & 1))
             IdColours(narcId, fileId, (a - start) / 2, (u16 *)(dst + a - offset), (b - a) / 2, ctx);
         return;
     }
 #endif
-    // this screen's version of the palette, if the owner coloured it differently here
-    FS_CloseFile(file);
-    pos = AmoledFind(file, narcId, fileId, ctx, &start, &count);
-    if (pos == 0)
-        pos = AmoledFind(file, narcId, fileId, AM_ANY, &start, &count);
-    if (pos == 0)
-        return;
+    // this screen's version of the palette, if the owner coloured it differently here (else the one found above)
+    {
+        u32 s2, c2, p2 = AmoledFind(file, narcId, fileId, ctx, &s2, &c2);
+        if (p2 != 0)
+            pos = p2;
+    }
     if (a < b && !((a - start) & 1))
     {
+        file = sAmFile;
         FS_SeekFile(file, pos + a - start, 0);
         FS_ReadFile(file, dst + a - offset, (b - a) & ~1u);
     }
-    FS_CloseFile(file);
 }
 
 // Colours some screens write by code (not from a palette file): constants in their overlays' literal pools, swapped
@@ -243,11 +251,11 @@ struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0 };   // 
 static BOOL sTaskMade;
 static u32 *sPatch;         // the shown screen's tile patches (see TilePatches), sorted by address
 static u32 sPatchCount;
-static u32 sCmMap;          // the battle Check Moves map the theme re-pointed at its type rows (BattleMoves), or 0
+u32 sCmMap;                 // the battle Check Moves map re-pointed at its type rows (src/battle/rh_hptext.c), or 0
 
 static u32 ScreenSig(void)
 {
-    u32 h = 2166136261u, eng, bg, i;
+    u32 h = 2166136261u, eng, bg, i, lo;
     for (eng = 0; eng < 2; eng++)
     {
         u32 io = eng ? 0x04001000 : 0x04000000, disp = *(vu32 *)io;
@@ -260,10 +268,11 @@ static u32 ScreenSig(void)
             cnt = *(vu16 *)(io + 8 + bg * 2);
             map = (const vu32 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
             h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
-            for (i = 0; i < 0x600 / 4; i++)
+            // tile patches on the map (palette numbers / tile numbers of cells, "map patches"): hashed as the game
+            // drew them. The patches are sorted by address like the map: found once, then walked along with it
             {
-                u32 w = map[i], k, a = (u32)&map[i] - 0x06000000, lo = 0, hi = sPatchCount;
-                // tile patches on the map (palette numbers of cells, "map patches"): hashed as the game drew them
+                u32 a = (u32)map - 0x06000000, k, hi = sPatchCount;
+                lo = 0;
                 while (lo < hi)
                 {
                     k = (lo + hi) / 2;
@@ -272,6 +281,12 @@ static u32 ScreenSig(void)
                     else
                         hi = k;
                 }
+            }
+            for (i = 0; i < 0x600 / 4; i++)
+            {
+                u32 w = map[i], k, a = (u32)&map[i] - 0x06000000;
+                for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a; lo++)
+                    ;
                 for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 4; lo++)
                 {
                     u32 e = sPatch[lo], sh = (e & 3) * 8 + (e >> 23 & 1) * 4;
@@ -577,68 +592,6 @@ static void ShowScreen(u32 sig)
     FS_CloseFile(file);
 }
 
-// Battle move buttons. Their colours come from a table in battle overlay 6 (0x0221BA00), one 16-colour row per type
-// (Normal first, then type 18 down to 1), copied into the palette by code: no palette file to theme.
-// - FIGHT screen (owner's 61): inside dark, every type (entries 1, 13, 14), patched in the table once it is loaded.
-// - Check Moves (owner's 72): the game draws all four buttons with sub BG row 12; the owner gave each button the
-//   border of its move's type (entries 1, 2, 5, 6 = the type row's 6, 7, 8, 5). Each button's type comes from its
-//   type icon (a word of its graphics, narc 8), and the button is re-pointed at a row of its own (12, 7, 8, 10:
-//   unused on that screen), a copy of row 12 with those 4 colours.
-#define OV6_MOVE_ROWS ((u16 *)0x0221BB4C)
-static const u32 sIconWord[18] = {     // word 7 of each type's icon graphics, by type
-    0xEFEFFFF8, 0xFFF33333, 0xF2EFFF22, 0xFEEFFFBB, 0xFFEFFEF4, 0xFFF55555, 0xF7777777, 0xFFEF3333, 0xEFFECCCC,
-    0xFFFAAAAA, 0xFFF22222, 0x44EF4444, 0xFFEF2222, 0xF1EFFF11, 0xFEEEFFF8, 0x55555555, 0xFFEF4EF4, 0xAEFAAAAA,
-};
-
-static void BattleMoves(void)
-{
-    static const u8 sRow[4] = { 12, 7, 8, 10 }, sFrom[4] = { 6, 7, 8, 5 }, sTo[4] = { 1, 2, 5, 6 };
-    u16 *t = OV6_MOVE_ROWS;
-    vu16 *oam = (vu16 *)0x07000400, *map;
-    u32 i, k, sh = 5 + (*(vu32 *)0x04001000 >> 20 & 3);
-    sCmMap = 0;
-    if (t[0] != 0x75CD || t[2] != 0x6AD7 || t[9] != 0x7319)      // (overlay 6 not loaded)
-        return;
-    if (t[1] == 0x7FFF)
-        for (i = 0; i < 19; i++)
-        {
-            t[16 * i + 1] = 0x1084; t[16 * i + 13] = 0x0842; t[16 * i + 14] = 0x0C63;
-        }
-    if (*(vu16 *)0x0400100C != 0x010A)                           // (sub BG2 of the battle party screens)
-        return;
-    map = (vu16 *)0x06200800;
-    for (k = 0; k < 128; k++, oam += 4)
-    {
-        u32 a0 = oam[0], a1 = oam[1], x = a1 & 511, y = a0 & 255, b, ty, w;
-        const u16 *row;
-        if ((a0 & 0x300) == 0x200 || a0 >> 14 != 1 || a1 >> 14 != 2 || y < 48 || y >= 144 || (x & 127) >= 64)
-            continue;                  // (hidden, not a 32x16 icon, not on a button)
-        w = *(vu32 *)(0x06600000 + ((oam[2] & 1023) << sh) + 28);
-        for (ty = 0; ty < 18 && sIconWord[ty] != w; ty++)
-            ;
-        if (ty == 18)
-            continue;
-        b = (y >= 96) * 2 + (x >= 128);
-        row = t + 16 * (ty ? 19 - ty : 0);
-        for (i = 0; i < 16; i++)       // (only what differs: the game's fades keep working)
-        {
-            u32 c = GetIndex(512 + 12 * 16 + i);
-            for (w = 0; w < 4; w++)
-                if (sTo[w] == i)
-                    c = row[sFrom[w]];
-            if (GetIndex(512 + sRow[b] * 16 + i) != c)
-                SetIndex(512 + sRow[b] * 16 + i, c);
-        }
-        for (i = 0; i < 6 * 16 && b != 0; i++)
-        {
-            vu16 *e = map + (6 + (b >> 1) * 6 + i / 16) * 32 + (b & 1) * 16 + i % 16;
-            if (*e >> 12 == 12)
-                *e = (u16)((*e & 0x0FFF) | sRow[b] << 12);
-        }
-        sCmMap = (u32)map;
-    }
-}
-
 static void ThemeTask(void *task, void *data)
 {
     u32 theme = RHCT_UiTheme(), sig;
@@ -719,14 +672,17 @@ static void ThemeTask(void *task, void *data)
             }
         }
     }
-    BattleMoves();
     {
         u32 i;
-        const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's HP-box text (src/battle/rh_hptext.c)
+        const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's parts (src/battle/rh_hptext.c)
         for (i = 0; i < sRegCount; i++)
             *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+        sCmMap = 0;
         if (hp[0] == 0x54504852 && hp[1] == 0x31545854)
-            ((void (*)(void))hp[2])();
+        {
+            sCmMap = ((u32 (*)(void))hp[5])();      // battle move buttons (the Check Moves map it re-pointed, or 0)
+            ((void (*)(void))hp[2])();              // HP-box text
+        }
     }
 }
 
