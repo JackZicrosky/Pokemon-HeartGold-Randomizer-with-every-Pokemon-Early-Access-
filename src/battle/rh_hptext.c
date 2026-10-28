@@ -211,7 +211,18 @@ static void Insert(u32 shift, const u16 *idx, u32 n)
         for (j = 0; j < at && !Free(j); j++)
             ;
         if (j == at)
-            continue;
+        {
+            // no free entry in front of it (busy screens, e.g. Check Moves with four moves): the box sprite moves
+            // to a free entry behind and its overlay takes the box's place, still in front of it
+            for (j = at + 1; j < 128 && !Free(j); j++)
+                ;
+            if (j == 128)
+                continue;
+            OAM[j * 4] = (u16)a0;
+            OAM[j * 4 + 1] = (u16)a1;
+            OAM[j * 4 + 2] = (u16)a2;
+            j = at;
+        }
         OAM[j * 4] = (u16)a0;
         OAM[j * 4 + 1] = (u16)a1;
         OAM[j * 4 + 2] = (u16)((a2 & 0x0C00) | sRow << 12 | OVL_SLOT(s));

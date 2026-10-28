@@ -517,7 +517,10 @@ for sig_, names in by_sig.items():
         continue
     touched = {i_ for n_ in names for i_, _ in screens[n_].get('ipatch', [])}
     order = list(range(0, 256)) + list(range(512, 768)) + list(range(256, 512)) + list(range(768, 1024))
-    key = next((k_ for k_ in order if k_ not in touched and len({pals[n_][k_] for n_ in names}) == len(names)), None)
+    # (the entry that tells most of them apart; pictures it can't tell apart still share a page)
+    key = max((k_ for k_ in order if k_ not in touched), key=lambda k_: (len({pals[n_][k_] for n_ in names}), -order.index(k_)))
+    if len({pals[n_][key] for n_ in names}) < 2:
+        key = None
     if key is None:
         ipstat['screen versions: no entry tells them apart'] += 1; continue
     for n_ in names:

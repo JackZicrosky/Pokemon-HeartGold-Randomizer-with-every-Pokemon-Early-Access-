@@ -251,6 +251,7 @@ static void ThemeCodeColours(void)
 // the "vwait" queue: run by the main loop right after the screen's vertical-blank callback (which copies the game's
 // palettes, tile maps and sprites to the hardware), so the theme's changes are in before the frame is drawn
 #define SysTask_CreateOnVWaitQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E374 | 1))
+#define SysTask_CreateOnVBlankQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E33C | 1))
 struct RhScreenSig { u32 magic, sig, shown, patches, rows; };
 struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0 };   // (the test tools read it)
 static BOOL sTaskMade;
@@ -651,6 +652,18 @@ static void ShowScreen(u32 sig)
     FS_CloseFile(file);
 }
 
+// The register patches again in every vertical blank (vblank queue, after the game's own tasks there): ThemeTask runs
+// only when the game waits for the vertical blank (every other frame on 30 fps screens), and the game sets its
+// registers every vertical blank (the field menu's dimming blend would come back every other frame)
+static void RegTask(void *task, void *data)
+{
+    u32 i;
+    (void)task; (void)data;
+    for (i = 0; i < sRegCount; i++)
+        *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+}
+
+static u32 sLastBase;       // the fingerprint before a version's colour went in (FindPage)
 static void ThemeTask(void *task, void *data)
 {
     u32 theme = RHCT_UiTheme(), sig, i;
@@ -666,7 +679,17 @@ static void ThemeTask(void *task, void *data)
         sig = 0;
 #endif
     if ((i = FindPage(sig)) >> 31)
-        sig = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
+    {
+        // the version the entry's colour says; one without a page while the screen stays (the version's own colours
+        // reached that entry) keeps the version shown
+        u32 v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
+        if (FindPage(v) == 0 && sig == sLastBase)
+            v = sLastSig;
+        sLastBase = sig;
+        sig = v;
+    }
+    else
+        sLastBase = sig;
     if (sig != sLastSig)
     {
         sLastSig = sig;
@@ -703,9 +726,9 @@ static void ThemeTask(void *task, void *data)
         }
         if (sRegs != NULL)
         {
+            sRegCount = 0;                      // (first: RegTask may run in between)
             Heap_Free(sRegs);
             sRegs = NULL;
-            sRegCount = 0;
         }
         ShowScreen(sig);
         // (the maps' cached parts were hashed with the old screen's patches undone: hash them again)
@@ -781,7 +804,8 @@ static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
 {
     if (!sTaskMade)
     {
-        sTaskMade = SysTask_CreateOnVWaitQueue(ThemeTask, NULL, 0) != NULL;
+        sTaskMade = SysTask_CreateOnVWaitQueue(ThemeTask, NULL, 0) != NULL
+                    && SysTask_CreateOnVBlankQueue(RegTask, NULL, 0x7FFFFFFF) != NULL;
     }
     u32 theme, size, start, ctx;
     if (data == NULL || data[0] != 'R' || data[1] != 'L' || data[2] != 'C' || data[3] != 'N')
