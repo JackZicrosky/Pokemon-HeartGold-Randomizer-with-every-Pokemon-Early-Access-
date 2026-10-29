@@ -661,6 +661,19 @@ static void RegTask(void *task, void *data)
     (void)task; (void)data;
     for (i = 0; i < sRegCount; i++)
         *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+    // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
+    // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
+    // faded buffer: fades go on). What the game loaded is what the undo puts back
+    for (i = 0; i < sIndexCount; i++)
+    {
+        u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = IdxWant(sIndexUndo[sIndexCount + i]);
+        u32 c = ((vu16 *)0x05000000)[idx];
+        if (c != want && c != GetBuf(idx, TRUE))
+        {
+            sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
+            ((vu16 *)0x05000000)[idx] = (u16)want;
+        }
+    }
 }
 
 static u32 sLastBase;       // the fingerprint before a version's colour went in (FindPage)
@@ -678,18 +691,19 @@ static void ThemeTask(void *task, void *data)
     if (gRhScreenSig.rows == 0x45474150)       // (test tools: "PAGE" = no screen pages, for the captures learn.py reads)
         sig = 0;
 #endif
-    if ((i = FindPage(sig)) >> 31)
     {
         // the version the entry's colour says; one without a page while the screen stays (the version's own colours
         // reached that entry) keeps the version shown
-        u32 v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
-        if (FindPage(v) == 0 && sig == sLastBase)
-            v = sLastSig;
+        u32 v = sig;
+        if ((i = FindPage(sig)) >> 31)
+        {
+            v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
+            if (FindPage(v) == 0 && sig == sLastBase)
+                v = sLastSig;
+        }
         sLastBase = sig;
         sig = v;
     }
-    else
-        sLastBase = sig;
     if (sig != sLastSig)
     {
         sLastSig = sig;
@@ -715,9 +729,9 @@ static void ThemeTask(void *task, void *data)
                     SetIndex(idx, sIndexUndo[i] & 0x7FFF);
                 ((vu16 *)0x05000000)[idx] = (u16)(ram & IDX_MARK ? sIndexUndo[2 * sIndexCount + i] : ram);
             }
+            sIndexCount = 0;                    // (first: RegTask may run in between)
             Heap_Free(sIndexUndo);
             sIndexUndo = NULL;
-            sIndexCount = 0;
         }
         if (sRows != NULL)
         {
@@ -752,19 +766,12 @@ static void ThemeTask(void *task, void *data)
                 sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
                 SetIndex(idx, want);
             }
-            else if ((c = ((vu16 *)0x05000000)[idx]) != want && c != GetBuf(idx, TRUE))
-            {
-                // loaded straight into palette RAM (not a fade step: those copy the faded buffer)
-                sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
-                ((vu16 *)0x05000000)[idx] = (u16)want;
-            }
+            // (loaded straight into palette RAM: RegTask, every vertical blank)
         }
     }
     {
-        u32 i;
         const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's parts (src/battle/rh_hptext.c)
-        for (i = 0; i < sRegCount; i++)
-            *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+        // (the register patches: RegTask, every vertical blank)
         sCmMap = 0;
         if (hp[0] == 0x54504852 && hp[1] == 0x31545854)
         {

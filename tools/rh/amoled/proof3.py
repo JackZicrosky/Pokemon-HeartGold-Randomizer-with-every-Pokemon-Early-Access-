@@ -14,6 +14,9 @@ from PIL import Image, ImageChops, ImageFilter
 A = 'D:/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots - AMOLED/'
 D = 'D:/AI shit/Claude/Pokemon Romhack Stuff/HeartGold/UI screenshots/'
 M = json.load(open('matches.json'))
+SYN = 'synth/'                                   # screens made from the owner's design of a sibling (learn.py)
+def PA(n): return SYN + 'AMOLED/' + n if os.path.exists(SYN + 'AMOLED/' + n) else A + n
+def PD(n): return SYN + 'Default/' + n if os.path.exists(SYN + 'Default/' + n) else D + n
 os.makedirs('proof3', exist_ok=True)
 GENDER = {(31, 11, 5), (6, 12, 27)}
 def o1(v): return v >> 3 if v % 8 == 0 else min(31, round(v * 31 / 255))
@@ -47,11 +50,35 @@ def neighbours(cap):
         w, k = len(m.group(2)), int(m.group(2))
         out += ['%s%0*d' % (m.group(1), w, k + dk) for dk in (-1, 1) if k + dk >= 0]
     return out
-def score_cap(name, cap, od, oa, changed, kept):
+# the owner's rules: 3D models (the bag's player and platform) need no change: pixels a 3D model covers (the
+# renderer's 3D rule on the colour-id capture) don't count; and pixels the owner coloured by mistake don't either
+# (72: the Chikorita icon's outline in (3,3,3), the game's grey in 71; owner: either is fine)
+# the message box's small two-button icon (right end of the box): shown or not by the game's state (the owner's 22
+# and 70 have it off, it is on in the recordings): not part of the situation; where shown, its colours still count
+SIT_IGNORE = [(205, 150, 235, 185)]
+OWNER_SLIPS = {'72_battle_check_moves.png': [((8, 195, 40, 219), (3, 3, 3))]}
+def mask3d(cap):
+    import dsrender
+    f = 'caps/id_%s.vram2' % cap
+    m = Image.new('L', (256, 384), 255)
+    if not os.path.exists(f): return m
+    b = open(f, 'rb').read(); shot = Image.open('caps/id_%s.png' % cap).convert('RGB')
+    R = dsrender.render(b); scr, _ = dsrender.screens(b, shot)
+    for half, eng in enumerate(dsrender.ENGINES[0]):
+        for y in range(192):
+            for x in range(256):
+                if scr[half][y][x] is None and R[eng][y][x] is not None:
+                    m.putpixel((x, y + 192 * half), 0)
+    return m.filter(ImageFilter.MinFilter(3))
+def score_cap(name, cap, od, oa, changed, kept, slip):
     dl, al = load(cap, 'def'), load(cap, 'am')
     if dl is None or al is None:
         return None
     battle = name[:2].isdigit() and 59 <= int(name[:2]) <= 72
+    m3d = ImageChops.multiply(mask3d(cap), slip)
+    sitm = Image.new('L', (256, 384), 255)
+    for box in SIT_IGNORE:
+        sitm.paste(0, box)
     best = None
     gcache = {}
     nd, dget = dl; na, aget = al
@@ -60,9 +87,9 @@ def score_cap(name, cap, od, oa, changed, kept):
         wa = ImageChops.multiply(neq(am, oa), changed)               # recoloured pixels: the owner's colour
         for j in range(nd):
             de = dget(j)
-            sit = ImageChops.multiply(neq(de, od), changed)          # ... at the owner's moment
+            sit = ImageChops.multiply(ImageChops.multiply(neq(de, od), changed), sitm)   # ... at the owner's moment
             wk = ImageChops.multiply(neq(am, de), kept)              # kept pixels: the game's own colour
-            wrong = ImageChops.lighter(wa, wk)
+            wrong = ImageChops.multiply(ImageChops.lighter(wa, wk), m3d)
             if battle:
                 if j not in gcache: gcache[j] = gmask(od, de)
                 gm = gcache[j]
@@ -73,9 +100,14 @@ def score_cap(name, cap, od, oa, changed, kept):
     return best
 ok = 0
 for name in names:
-    od = q5(Image.open(D + name).convert('RGB')); oa = Image.open(A + name).convert('RGB').point(lambda v: o1(v) << 3)
+    od = q5(Image.open(PD(name)).convert('RGB')); oa = Image.open(PA(name)).convert('RGB').point(lambda v: o1(v) << 3)
     changed = neq(od, oa); kept = ImageChops.invert(changed)
-    res = [r for r in (score_cap(name, c, od, oa, changed, kept) for c in neighbours(M[name])) if r is not None]
+    slip = Image.new('L', (256, 384), 255)
+    for box, col in OWNER_SLIPS.get(name, []):
+        for y in range(box[1], box[3]):
+            for x in range(box[0], box[2]):
+                if tuple(v >> 3 for v in oa.getpixel((x, y))) == col: slip.putpixel((x, y), 0)
+    res = [r for r in (score_cap(name, c, od, oa, changed, kept, slip) for c in neighbours(M[name])) if r is not None]
     if not res:
         print('%-40s %-16s no recording' % (name, M[name])); continue
     (_, ns, nw), sit, wrong, am, cap = min(res, key=lambda r: r[0])

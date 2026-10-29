@@ -40,7 +40,7 @@ defs = {os.path.basename(f)[4:-4]: Image.open(f).convert('RGB') for f in glob.gl
 votes = collections.defaultdict(collections.Counter)       # (narc, file, idx) -> Counter(owner colour)
 cvotes = collections.defaultdict(collections.Counter)      # (narc, file, idx, screen context) -> Counter(owner colour)
 # screens shown by one overlay: their votes also go to that context (screen-specific palettes, see gen_rh_amoled.py)
-CONTEXT = {'02_main_menu.png': 'ov74', '03_new_game_save_warning.png': 'ov74'}
+CONTEXT = {'02_main_menu.png': 'ov74', '02b_main_menu_page2.png': 'ov74', '03_new_game_save_warning.png': 'ov74'}
 ctx_votes = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
 pix = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))   # screen -> entry -> colour -> pixels
 report = []
@@ -51,13 +51,18 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0'}
-for f in sorted(glob.glob(A + '[0-9]*.png')):
-    name = os.path.basename(f)
-    if not os.path.exists(D + name): continue
-    if open(D + name, 'rb').read() == open(f, 'rb').read():
+FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18'}
+# the owner's pictures, and screens the owner didn't draw made from the owner's design of a sibling screen
+# (synth/: e.g. the main menu's second page from its first, the same colour for the same Default colour)
+SYN = os.path.dirname(os.path.abspath(__file__)) + '/synth/'
+PA, PD = {}, {}
+for f in sorted(glob.glob(A + '[0-9]*.png')) + sorted(glob.glob(SYN + 'AMOLED/[0-9]*.png')):
+    n_ = os.path.basename(f); PA[n_] = f; PD[n_] = (SYN + 'Default/' if f.startswith(SYN) else D) + n_
+for name, f in sorted(PA.items()):
+    if not os.path.exists(PD[name]): continue
+    if open(PD[name], 'rb').read() == open(f, 'rb').read():
         continue                                   # an unedited copy of the Default picture: not a design (yet)
-    d = Image.open(D + name).convert('RGB'); o = Image.open(f).convert('RGB')
+    d = Image.open(PD[name]).convert('RGB'); o = Image.open(f).convert('RGB')
     dd = list(d.getdata())
     # the capture that looks most like the Default screenshot
     best, bn = None, 10**9
@@ -156,7 +161,7 @@ for sc, ents in pix.items():
     patches = set()
     shown_idx = {q['idx'] for half in scr for line in half for q in line if q}    # entries this screen shows at all
     # what the owner wants at every use of a tile pixel (a tile can be drawn in many places): patch only where most agree
-    o_img = Image.open(A + sc).convert('RGB')
+    o_img = Image.open(PA[sc]).convert('RGB')
     tile_want = collections.defaultdict(collections.Counter)
     for yy in range(384):
         for xx in range(256):
@@ -262,7 +267,7 @@ for sc in screens:
     if max(fit) < 0.85:
         ipstat['screens not rendered reliably'] += 1
         continue
-    o = Image.open(A + sc).convert('RGB'); d = Image.open(D + sc).convert('RGB'); dc = defs.get(cap)
+    o = Image.open(PA[sc]).convert('RGB'); d = Image.open(PD[sc]).convert('RGB'); dc = defs.get(cap)
     want = collections.defaultdict(collections.Counter)
     tpatch = {(a_, h_): (f_, t_) for a_, h_, f_, t_ in screens[sc].get('vpatch', [])}
     cellpx = collections.defaultdict(list)       # map entry -> [(tile byte, half, palette index, colour wanted)]
