@@ -15,6 +15,7 @@ if [ "$MKSTATES" = 1 ]; then
   $P cap.py def r30.sav W60 poke:022ADC70,030303030303030303030303 poke:022ADCAC,130013001300130013001300130013001300130013001300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 poke:021D15A8,b179379e battle ssave:bpre_r3 2>&1 | grep -E "$F"
   $P cap.py def r30.sav W60 poke:022ADC70,020202020202020202020202 poke:022ADCAC,a700a700a700a700a700a700a700a700a700a700a700a700 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 poke:021D15A8,b179379e battle ssave:bpre_s2 2>&1 | grep -E "$F"
   $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,130013001300130013001300130013001300130013001300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 battle ssave:bpre_rm4 2>&1 | grep -E "$F"
+  $P cap.py def r30.sav W60 poke:022ADC70,040404040404040404040404 poke:022ADCAC,130013001300130013001300130013001300130013001300 poke:0227CF72,0400 setmon:10,10,14,11,13,14 W21 poke:021D15A8,b179379e battle ssave:bpre_rf4 2>&1 | grep -E "$F"
 fi
 for M in $MODES; do
 # field menu, Pokedex, trainer card, save, options, Pokegear, party, summary, bag
@@ -42,6 +43,7 @@ $P cap.py $M none sload:bpre_s2 theme idreset W150 cap:s2_i1 W150 cap:s2_i2 W150
 $P cap.py $M none sload:bpre_s2 theme idreset W700 cap:s2_cmd3 P216,168 cap:s2_party_press rel W400 cap:s2_party T64,40 W400 cap:s2_party_menu T50,172 W500 cap:s2_sum R W200 cap:s2_sum2 B W500 T155,172 W500 cap:s2_checkmoves 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre_rm4 theme idreset W150 cap:rm4_i1 W150 cap:rm4_i2 W150 cap:rm4_i3 W250 cap:rm4_cmd P128,83 cap:rm4_fp0 W2 cap:rm4_fp1 W3 cap:rm4_fp2 rel W300 cap:rm4_moves B W20 B W400 cap:rm4_cmd2 P40,168 cap:rm4_bp0 W2 cap:rm4_bp1 W3 cap:rm4_bp2 rel W400 waitobj:220,165 cap:rm4_bag P64,42 cap:rm4_pocket_press rel W400 waitobj:220,165 cap:rm4_bag_items T64,30 W400 cap:rm4_item 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre_rm4 theme idreset W700 cap:rm4_cmd3 P216,168 cap:rm4_party_press rel W400 cap:rm4_party T64,40 W400 cap:rm4_party_menu T50,172 W500 cap:rm4_sum R W200 cap:rm4_sum2 B W500 T155,172 W500 cap:rm4_checkmoves 2>&1 | grep -E "$F"
+$P cap.py $M none sload:bpre_rf4 theme idreset W700 cap:rf4_cmd3 P216,168 cap:rf4_party_press rel W400 cap:rf4_party T64,40 W400 cap:rf4_party_menu T50,172 W500 cap:rf4_sum R W200 cap:rf4_sum2 B W500 T155,172 W500 cap:rf4_checkmoves 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre4 theme idreset W700 T128,83 W300 cap:f_moves 2>&1 | grep -E "$F"
 $P cap.py $M none sload:bpre4 theme idreset W700 P216,168 rel W400 T64,40 W400 T155,172 W500 cap:f_checkmoves 2>&1 | grep -E "$F"
 echo "mode $M done"

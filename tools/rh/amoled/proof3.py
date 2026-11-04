@@ -57,6 +57,12 @@ def neighbours(cap):
 # and 70 have it off, it is on in the recordings): not part of the situation; where shown, its colours still count
 SIT_IGNORE = [(205, 150, 235, 185)]
 OWNER_SLIPS = {'72_battle_check_moves.png': [((8, 195, 40, 219), (3, 3, 3))]}
+# Pokemon icon outlines the owner coloured differently from the game (owner: either is fine): the icon's box, pixels
+# the owner recoloured
+ICON_SLIPS = {'28_pokedex_list.png': [(24, 196, 72, 240)]}
+# areas where the owner's Default and AMOLED pictures come from different moments (64/65: the wild Rattata is Lv3
+# in the Default picture, Lv4 in the AMOLED one): the level digit counts neither way
+PAIR_MISMATCH = {'64_battle_party.png': [(80, 27, 93, 37)], '65_battle_party_menu.png': [(80, 27, 93, 37)]}
 def mask3d(cap):
     import dsrender
     f = 'caps/id_%s.vram2' % cap
@@ -69,6 +75,16 @@ def mask3d(cap):
             for x in range(256):
                 if scr[half][y][x] is None and R[eng][y][x] is not None:
                     m.putpixel((x, y + 192 * half), 0)
+    # (and the bag's 3D model and platform, by their texture palettes in the colour-id capture: narc 15 file 41,
+    # file 8 entries 8-16)
+    j = 'caps/id_%s.json' % cap
+    if os.path.exists(j):
+        log = json.load(open(j)); ip = shot.load()
+        for y in range(384):
+            for x in range(256):
+                c = ip[x, y]; c = (c[0] >> 3) | (c[1] >> 3) << 5 | (c[2] >> 3) << 10; sl = c >> 8
+                if sl < min(64, log['count']) and log['narc'][sl] == 15 and (log['file'][sl] & 0xFFF == 41 or (log['file'][sl] & 0xFFF == 8 and 8 <= c & 255 <= 16)):
+                    m.putpixel((x, y), 0)
     return m.filter(ImageFilter.MinFilter(3))
 def score_cap(name, cap, od, oa, changed, kept, slip):
     dl, al = load(cap, 'def'), load(cap, 'am')
@@ -112,6 +128,10 @@ for name in names:
         for y in range(box[1], box[3]):
             for x in range(box[0], box[2]):
                 if tuple(v >> 3 for v in oa.getpixel((x, y))) == col: slip.putpixel((x, y), 0)
+    for box in PAIR_MISMATCH.get(name, []):
+        slip.paste(0, box); changed.paste(0, box)
+    for box in ICON_SLIPS.get(name, []):
+        slip.paste(ImageChops.invert(changed).crop(box), box[:2])
     res = [r for r in (score_cap(name, c, od, oa, changed, kept, slip) for c in neighbours(M[name])) if r is not None]
     if not res:
         print('%-40s %-16s no recording' % (name, M[name])); continue
