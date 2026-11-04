@@ -51,7 +51,7 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press'}
+FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp1', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press', '73_field_menu_pokemon_pressed.png': 'y_party_press'}
 # the owner's pictures, and screens the owner didn't draw made from the owner's design of a sibling screen
 # (synth/: e.g. the main menu's second page from its first, the same colour for the same Default colour)
 SYN = os.path.dirname(os.path.abspath(__file__)) + '/synth/'

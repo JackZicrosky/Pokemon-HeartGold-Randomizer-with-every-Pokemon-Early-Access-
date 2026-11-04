@@ -613,7 +613,8 @@ static void ShowScreen(u32 sig)
                 // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
                 sIndexUndo[i] = (pair[0] & 0x3FF0000) | (GetIndex(pair[0] >> 16 & 1023) & 0x7FFF);
                 sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
-                SetIndex(pair[0] >> 16 & 1023, IdxWant(pair[0]));
+                // (palette RAM only for now: the row versions below find their rows in the game's buffers)
+                ((vu16 *)0x05000000)[pair[0] >> 16 & 1023] = (u16)IdxWant(pair[0]);
             }
         }
         sIndexCount = sIndexUndo != NULL ? n : 0;
