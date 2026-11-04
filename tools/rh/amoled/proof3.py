@@ -103,6 +103,11 @@ for name in names:
     od = q5(Image.open(PD(name)).convert('RGB')); oa = Image.open(PA(name)).convert('RGB').point(lambda v: o1(v) << 3)
     changed = neq(od, oa); kept = ImageChops.invert(changed)
     slip = Image.new('L', (256, 384), 255)
+    # (the owner's forgiven list: the red d-pad corner sprites around the battle buttons, owner's reds)
+    if name[:2].isdigit() and 59 <= int(name[:2]) <= 72:
+        for y in range(192, 384):
+            for x in range(256):
+                if tuple(v >> 3 for v in oa.getpixel((x, y))) in ((31, 13, 13), (24, 12, 12)): slip.putpixel((x, y), 0)
     for box, col in OWNER_SLIPS.get(name, []):
         for y in range(box[1], box[3]):
             for x in range(box[0], box[2]):

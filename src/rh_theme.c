@@ -111,7 +111,6 @@ static void IdColours(u32 narcId, s32 fileId, u32 first, u16 *colors, u32 n, u32
 #define AM_HEADER  48
 #define AM_ANY     0xFFFFFFFF
 static u32 sArcMask[10];
-static BOOL sArcMaskLoaded;
 static u32 *sAmBlocks;      // the table's entries in blocks of AM_BLOCK: each block's first (key, context), read once
 static u32 sAmCount;
 static u32 *sAmCache;       // the block read last (a screen loads files of one archive one after another), sAmCacheB
@@ -125,7 +124,7 @@ static u32 sAmCacheB = 0xFFFFFFFF;
 static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u32 *count)
 {
     u32 hdr[12], key = narcId << 16 | (u32)fileId, i, b, n, *e;
-    if (narcId >= 320 || (sArcMaskLoaded && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
+    if (narcId >= 320 || (sAmBlocks != NULL && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
         return 0;
     if (sAmFile == NULL)                       // (opened once, kept open: opening by path costs a directory search)
     {
@@ -147,7 +146,6 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
             goto none;
         for (i = 0; i < 10; i++)
             sArcMask[i] = hdr[2 + i];
-        sArcMaskLoaded = TRUE;
         n = hdr[1];
         if ((sAmCache == NULL && (sAmCache = SafeAlloc(AM_BLOCK * 16)) == NULL)
             || (sAmBlocks = SafeAlloc((n + AM_BLOCK - 1) / AM_BLOCK * 8)) == NULL)
@@ -158,8 +156,6 @@ static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u3
             FS_ReadFile(file, sAmBlocks + b * 2, 8);
         }
         sAmCount = n;
-        if (!(sArcMask[narcId >> 5] & 1u << (narcId & 31)))
-            goto none;
     }
     // the last block starting at or before (key, ctx); then the entry in it
     for (b = 0; (b + 1) * AM_BLOCK < sAmCount
@@ -265,7 +261,7 @@ u32 sCmMap;                 // the battle Check Moves map re-pointed at its type
 static u32 sMapQuick[8], sMapHash[8];
 static u32 ScreenSig(void)
 {
-    u32 h = 2166136261u, eng, bg, i, lo, prev, w2 = 0;
+    u32 h = 2166136261u, eng, bg, i, lo, prev;
     for (eng = 0; eng < 2; eng++)
     {
         u32 io = eng ? 0x04001000 : 0x04000000, disp = *(vu32 *)io;
@@ -308,10 +304,7 @@ static u32 ScreenSig(void)
             hb = 2166136261u;
             for (i = 0; i < 0x600 / 2; i++)
             {
-                u32 e, t;
-                if (!(i & 1))
-                    w2 = ((const vu32 *)map)[i >> 1];
-                e = i & 1 ? w2 >> 16 : w2 & 0xFFFF;
+                u32 e = map[i], t;
                 if (lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < (u32)&map[i] + 2 - 0x06000000)
                 {
                     u32 a = (u32)&map[i] - 0x06000000;
@@ -494,7 +487,7 @@ static u32 sRegCount;
 
 // the colour an entry has now: from the game's unfaded palette buffer when there is one (palette RAM may be mid-fade);
 // GetBuf(idx, TRUE): from its faded buffer (what the game's fades copy into palette RAM)
-static u32 GetBuf(u32 idx, BOOL faded)
+u32 GetBuf(u32 idx, BOOL faded)          // (also called by the battle overlay: src/battle/rh_hptext.c)
 {
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
     u32 i, id = sBufFor[idx >> 8], off = idx & 255;
@@ -565,23 +558,82 @@ static u32 FindPage(u32 sig)
     return 0;
 }
 
+static u32 *sPgFile;        // the pages file, open
 static void ShowScreen(u32 sig)
 {
-    u32 file[FSFILE_SIZE / 4], hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
+    u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
     struct PgRow *row;
     ent[1] = FindPage(sig);
     if (ent[1] == 0 || ent[1] >> 31)
         return;
     gRhScreenSig.shown = sig;
-    FS_InitFile(file);
-    if (!FS_OpenFile(file, "data/rh_amoled_pages.bin"))
-        return;
+    if (sPgFile == NULL)                       // (opened once, kept open: opening by path costs a directory search,
+    {                                          // and a new screen's colours should be in before the frame is drawn)
+        if ((sPgFile = SafeAlloc(FSFILE_SIZE)) == NULL)
+            return;
+        FS_InitFile(sPgFile);
+        if (!FS_OpenFile(sPgFile, "data/rh_amoled_pages.bin"))
+        {
+            Heap_Free(sPgFile);
+            sPgFile = NULL;
+            return;
+        }
+    }
+    file = sPgFile;
     FS_SeekFile(file, ent[1], 0);
     FS_ReadFile(file, &n, 4);
     mid = n;                         // (the real count, for the tile patches' offset)
     hdr[1] = (sRowsAt - 12) / 8;
-    if (n > PG_MAX / 2)
-        n = PG_MAX / 2;
+    // its tile patches: after the pairs
+    FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
+    n = 0;
+    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
+    {
+        sPatch = SafeAlloc(n * 6);
+        if (sPatch != NULL)
+        {
+            FS_ReadFile(file, sPatch, n * 4);
+            sPatchVal = (u16 *)(sPatch + n);
+            sPatchCount = n;
+        }
+    }
+    // its palette index patches: after the tile patches (what each entry had is kept, to undo them)
+    FS_SeekFile(file, ent[1] + 4 + mid * 8 + 4 + n * 4, 0);
+    pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
+    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
+    {
+        sIndexUndo = SafeAlloc(n * 12);
+        if (sIndexUndo != NULL)
+        {
+            FS_ReadFile(file, sIndexUndo + n, n * 4);
+            for (i = 0; i < n; i++)
+            {
+                pair[0] = sIndexUndo[n + i];
+                // (palette RAM gets the buffer's colour back too: palette RAM may not have it yet, the game's copy
+                // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
+                sIndexUndo[i] = (pair[0] & 0x3FF0000) | (GetIndex(pair[0] >> 16 & 1023) & 0x7FFF);
+                sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
+                SetIndex(pair[0] >> 16 & 1023, IdxWant(pair[0]));
+            }
+        }
+        sIndexCount = sIndexUndo != NULL ? n : 0;
+    }
+    else if (n > 1024)
+        n = 0;
+    // its register patches: after the index patches
+    FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
+    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 16)
+    {
+        sRegs = SafeAlloc(n * 4);
+        if (sRegs != NULL)
+        {
+            FS_ReadFile(file, sRegs, n * 4);
+            sRegCount = n;
+        }
+    }
+    // its row versions last (many reads: the index patches above are in palette RAM before the vertical blank ends,
+    // a new screen has the owner's colours from its first frame), then the index patches again on top of them
+    n = mid > PG_MAX / 2 ? PG_MAX / 2 : mid;
     row = n ? SafeAlloc(sizeof(struct PgRow) * n * 2) : NULL;
     if (row != NULL)
     {
@@ -601,55 +653,9 @@ static void ShowScreen(u32 sig)
         sRows = row; sRowN = n * 2; sBloom = bloom; sRowFrames = 60;
         ApplyRows();
     }
-    // its tile patches: after the pairs
-    FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
-    n = 0;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
-    {
-        sPatch = SafeAlloc(n * 6);
-        if (sPatch != NULL)
-        {
-            FS_ReadFile(file, sPatch, n * 4);
-            sPatchVal = (u16 *)(sPatch + n);
-            sPatchCount = n;
-            gRhScreenSig.patches = n;
-        }
-    }
-    // its palette index patches: after the tile patches (what each entry had is kept, to undo them)
-    FS_SeekFile(file, ent[1] + 4 + mid * 8 + 4 + n * 4, 0);
-    pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
-    {
-        sIndexUndo = SafeAlloc(n * 12);
-        if (sIndexUndo != NULL)
-        {
-            FS_ReadFile(file, sIndexUndo + n, n * 4);
-            for (i = 0; i < n; i++)
-            {
-                mid = sIndexUndo[n + i];
-                // (palette RAM gets the buffer's colour back too: palette RAM may not have it yet, the game's copy
-                // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
-                sIndexUndo[i] = (mid & 0x3FF0000) | (GetIndex(mid >> 16 & 1023) & 0x7FFF);
-                sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
-                SetIndex(mid >> 16 & 1023, IdxWant(mid));
-            }
-        }
-        sIndexCount = sIndexUndo != NULL ? n : 0;
-    }
-    else if (n > 1024)
-        n = 0;
-    // its register patches: after the index patches
-    FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 16)
-    {
-        sRegs = SafeAlloc(n * 4);
-        if (sRegs != NULL)
-        {
-            FS_ReadFile(file, sRegs, n * 4);
-            sRegCount = n;
-        }
-    }
-    FS_CloseFile(file);
+    for (i = 0; i < sIndexCount; i++)
+        SetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023, IdxWant(sIndexUndo[sIndexCount + i]));
+
 }
 
 // The register patches again in every vertical blank (vblank queue, after the game's own tasks there): ThemeTask runs
@@ -663,7 +669,8 @@ static void RegTask(void *task, void *data)
         *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
     // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
     // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
-    // faded buffer: fades go on). What the game loaded is what the undo puts back
+    // faded buffer: fades go on, also the ones of a single row, e.g. a blinking icon). What the game loaded is what
+    // the undo puts back
     for (i = 0; i < sIndexCount; i++)
     {
         u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = IdxWant(sIndexUndo[sIndexCount + i]);
@@ -785,7 +792,7 @@ static void ThemeTask(void *task, void *data)
 // GX_LoadOAM (arm9 0x020CFDC8) and the sprite library's main-screen OAM loader (0x020B78C4, through a pointer table),
 // both (source, offset, size), hooked (armhooks): the copy (16-bit: it can be a single entry's attribute), then the
 // battle HP-box text overlays back in (src/battle/rh_hptext.c), right after every copy of the game's sprites
-void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
+static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
 {
     const u32 *hp = (const u32 *)0x023C4000;
     vu16 *dst = (vu16 *)(0x07000000 + offset);
@@ -793,18 +800,17 @@ void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
     for (size >>= 1; size != 0; size--)
         *dst++ = *from++;
     if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
-        ((void (*)(void))hp[4])();     // (only the overlays' positions: see src/battle/rh_hptext.c RH_HpSync)
+        ((void (*)(void))hp[part])();
+}
+
+void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
+{
+    LoadOam(src, offset, size, 4);     // (only the overlays' positions: see src/battle/rh_hptext.c RH_HpSync)
 }
 
 void RH_LoadOamMain(const u32 *src, u32 offset, u32 size)
 {
-    const u32 *hp = (const u32 *)0x023C4000;
-    vu16 *dst = (vu16 *)(0x07000000 + offset);
-    const u16 *from = (const u16 *)src;
-    for (size >>= 1; size != 0; size--)
-        *dst++ = *from++;
-    if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
-        ((void (*)(void))hp[3])();
+    LoadOam(src, offset, size, 3);
 }
 
 static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)

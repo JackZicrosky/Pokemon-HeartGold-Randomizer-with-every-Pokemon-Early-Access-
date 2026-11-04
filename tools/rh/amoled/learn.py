@@ -51,7 +51,7 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18'}
+FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press'}
 # the owner's pictures, and screens the owner didn't draw made from the owner's design of a sibling screen
 # (synth/: e.g. the main menu's second page from its first, the same colour for the same Default colour)
 SYN = os.path.dirname(os.path.abspath(__file__)) + '/synth/'
@@ -269,6 +269,7 @@ for sc in screens:
         continue
     o = Image.open(PA[sc]).convert('RGB'); d = Image.open(PD[sc]).convert('RGB'); dc = defs.get(cap)
     want = collections.defaultdict(collections.Counter)
+    art_ok = set()                               # art entries the owner recoloured on this screen (patched anyway)
     tpatch = {(a_, h_): (f_, t_) for a_, h_, f_, t_ in screens[sc].get('vpatch', [])}
     cellpx = collections.defaultdict(list)       # map entry -> [(tile byte, half, palette index, colour wanted)]
     kept = collections.Counter()                 # idx -> pixels where the owner kept the game's colour (and AMOLED has it)
@@ -347,8 +348,12 @@ for sc in screens:
                 ipstat['blend can not reach it'] += 1; continue
             if idlog is not None:
                 ic = c5(idshot_ip.getpixel((x, y))); slot = ic >> 8
+                # (art the owner recoloured on this screen gets its patch too, e.g. the Oak intro's dimmed card)
                 if slot < min(64, idlog['count']) and not ui_file(idlog['narc'][slot], idlog['file'][slot] & 0xFFF, learned_files):
-                    ipstat['not a UI palette (art, battle background)'] += 1; continue
+                    if (ow == tuple(v >> 3 for v in d.getpixel((x, y))) or idlog['narc'][slot] in (4, 6) or idlog['narc'][slot] >= 320
+                            or (idlog['narc'][slot] == 7 and idlog['file'][slot] & 0xFFF < 246)):
+                        ipstat['not a UI palette (art, battle background)'] += 1; continue
+                    art_ok.add(px['idx'])
             if rowfile.get(px['idx'] // 16) == (8, 71) and px['idx'] % 16 in (2, 14) and (t[0] | t[1] << 5 | t[2] << 10) in HP_TEXT:
                 continue                              # (HP box text: the overlay's, see above)
             want[px['idx']][t[0] | t[1] << 5 | t[2] << 10] += 1
@@ -402,7 +407,7 @@ for sc in screens:
         screens[sc].setdefault('vpatch', []).append((maddr + 1, 1, (base - eb) // 16, groups[key] - eb // 16))
         mapped.add(maddr)
         ipstat['map patches'] += 1
-    ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files)]
+    ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files) or i in art_ok]
     done = {i for i, _ in ip}
     ip += [(i, c) for i, c in spare_ip.get(sc, {}).items() if i not in done]
     # tile copies: a cell (of the game's own graphics) whose pixels want colours its tile can't give where it is
