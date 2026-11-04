@@ -129,10 +129,39 @@ static void MatchArt(const u8 *const *chr, u32 n)
     FS_CloseFile(file);
 }
 
+u32 LONG_CALL GetBuf(u32 idx, BOOL faded);    // src/rh_theme.c (always loaded: called through a register)
+
+// (the game's unfaded colours: the boxes are still found while the screen fades, e.g. leaving the battle)
 static BOOL IsHpRow(u32 r)
 {
-    return (OBJ_PAL[r * 16 + 5] & 0x7FFF) == 0x0240 && (OBJ_PAL[r * 16 + 6] & 0x7FFF) == 0x1303
-        && (OBJ_PAL[r * 16 + 8] & 0x7FFF) == 0x02DF;
+    return (GetBuf(256 + r * 16 + 5, FALSE) & 0x7FFF) == 0x0240 && (GetBuf(256 + r * 16 + 6, FALSE) & 0x7FFF) == 0x1303
+        && (GetBuf(256 + r * 16 + 8, FALSE) & 0x7FFF) == 0x02DF;
+}
+
+// the overlays' colour c faded as far as the box art is (the game fades the palettes, e.g. to black when the battle
+// ends; the overlays' own row is not one it fades): measured on the box row's entry 8 (yellow, red 31) and 2 (dark)
+static u32 Faded(u32 c, u32 boxRow)
+{
+    u32 u8_ = GetBuf(256 + boxRow * 16 + 8, FALSE) & 0x7FFF, c8 = OBJ_PAL[boxRow * 16 + 8] & 0x7FFF;
+    u32 u2 = GetBuf(256 + boxRow * 16 + 2, FALSE) & 0x7FFF, c2 = OBJ_PAL[boxRow * 16 + 2] & 0x7FFF;
+    u32 k, out = 0, sh;
+    if (c8 == u8_ && c2 == u2)
+        return c;
+    if ((c8 & 31) < (u8_ & 31))                          // toward black: how much of red 31 is left
+    {
+        k = (c8 & 31) * 16 / ((u8_ & 31) ? (u8_ & 31) : 1);
+        for (sh = 0; sh < 15; sh += 5)
+            out |= ((c >> sh & 31) * k / 16) << sh;
+        return out;
+    }
+    if ((c2 & 31) > (u2 & 31) && (u2 & 31) < 31)         // toward white
+    {
+        k = ((c2 & 31) - (u2 & 31)) * 16 / (31 - (u2 & 31));
+        for (sh = 0; sh < 15; sh += 5)
+            out |= ((c >> sh & 31) + (31 - (c >> sh & 31)) * k / 16) << sh;
+        return out;
+    }
+    return c;
 }
 
 static BOOL Free(u32 j)
@@ -285,8 +314,8 @@ void RH_HpText(void)
         sRow = 0;
         return;
     }
-    OBJ_PAL[sRow * 16 + 14] = TEXT_COLOUR;
-    OBJ_PAL[sRow * 16 + 2] = SHADOW_COLOUR;
+    OBJ_PAL[sRow * 16 + 14] = (u16)Faded(TEXT_COLOUR, OAM[idx[0] * 4 + 2] >> 12);
+    OBJ_PAL[sRow * 16 + 2] = (u16)Faded(SHADOW_COLOUR, OAM[idx[0] * 4 + 2] >> 12);
     Insert(shift, idx, n);
 }
 
@@ -326,7 +355,6 @@ void RH_HpSync(void)
 
 
 // ---- moved from src/rh_theme.c (always-loaded space): battle only ----
-u32 LONG_CALL GetBuf(u32 idx, BOOL faded);    // src/rh_theme.c (always loaded: called through a register)
 void LONG_CALL SetIndex(u32 idx, u32 c);
 #define GetIndex(idx) GetBuf(idx, FALSE)
 
@@ -334,7 +362,7 @@ void LONG_CALL SetIndex(u32 idx, u32 c);
 // (Normal first, then type 18 down to 1), copied into the palette by code: no palette file to theme.
 // - FIGHT screen (owner's 61): inside dark, every type (entries 1, 13, 14), patched in the table once it is loaded.
 // - Check Moves (owner's 72): the game draws all four buttons with sub BG row 12; the owner gave each button the
-//   border of its move's type (entries 1, 2, 5, 6 = the type row's 6, 7, 8, 5). Each button's type comes from its
+//   border of its move's type (entries 1, 2, 5, 6, 8 = the type row's 6, 7, 8, 5, 5). Each button's type comes from its
 //   type icon (a word of its graphics, narc 8), and the button is re-pointed at a row of its own (12, 7, 8, 10:
 //   unused on that screen), a copy of row 12 with those 4 colours.
 #define OV6_MOVE_ROWS ((u16 *)0x0221BB4C)
@@ -345,7 +373,9 @@ static const u32 sIconWord[18] = {     // word 7 of each type's icon graphics, b
 
 u32 RH_BattleMoves(void)
 {
-    static const u8 sRow[4] = { 12, 7, 8, 10 }, sFrom[4] = { 6, 7, 8, 5 }, sTo[4] = { 1, 2, 5, 6 };
+    // (entry 8: the border as the game draws it, the type's colour in any state of the screen; 1, 2, 5, 6: the
+    // border as the owner's picture's tile patches draw it)
+    static const u8 sRow[4] = { 12, 7, 8, 10 }, sFrom[5] = { 6, 7, 8, 5, 5 }, sTo[5] = { 1, 2, 5, 6, 8 };
     u16 *t = OV6_MOVE_ROWS;
     vu16 *oam = (vu16 *)0x07000400, *map;
     u32 i, k, sh = 5 + (*(vu32 *)0x04001000 >> 20 & 3);
@@ -376,7 +406,7 @@ u32 RH_BattleMoves(void)
         for (i = 0; i < 16; i++)       // (only what differs: the game's fades keep working)
         {
             u32 c = GetIndex(512 + 12 * 16 + i);
-            for (w = 0; w < 4; w++)
+            for (w = 0; w < 5; w++)
                 if (sTo[w] == i)
                     c = row[sFrom[w]];
             if (GetIndex(512 + sRow[b] * 16 + i) != c)

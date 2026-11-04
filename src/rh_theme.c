@@ -7,14 +7,12 @@
 // tools/rh/gen_rh_amoled.py and stored in the ROM file data/rh_amoled.bin; palettes not in it stay as they are.
 // Default = never touched.
 // NARC_New is hooked too, to remember which archive an open NARC is (the spare bytes 0x52-0x53 of the struct).
+// The code that themes (rhtheme/, data/rh_theme.bin) is loaded onto the system heap only while the theme is AMOLED:
+// this file is what stays loaded (see include/rh/rh_theme_blob.h).
 #include "../include/types.h"
 #include "../include/rh/rh_coretable.h"
 #include "../include/rh/rh_test.h"
-
-#define RH_THEME_DEFAULT    0
-#define RH_THEME_RANDOMIZER 1
-#define RH_THEME_AMOLED     2
-#define RH_THEME_IDS        3   // test builds only: every colour becomes its id (palette slot, index), see below
+#include "../include/rh/rh_theme_blob.h"
 
 // ---- game functions (arm9) ----
 #define Heap_Alloc            ((void *(*)(u32, u32))(0x0201AA8C | 1))
@@ -39,328 +37,31 @@
 #define NARC_ID(n)   (*(u16 *)((u8 *)(n) + 0x52))     // romhack: spare struct bytes
 #define NARC_UNKNOWN 0xFFFF
 
-// Pokemon / item / title art: never themed, not counted for the screen contexts below
-static const u16 sArt[] = { 4, 114, 194, 195, 18, 20, 69, 46, 174, 264, 81 };
-
-static BOOL IsArt(u32 narcId)
-{
-    u32 i;
-    if (narcId == NARC_UNKNOWN)
-        return TRUE;
-    for (i = 0; i < NELEMS(sArt); i++)
-        if (narcId == sArt[i])
-            return TRUE;
-    return FALSE;
-}
-
-// Screen contexts. The owner coloured the same palette entry differently on different screens (white text on one,
-// a black panel on another), so a palette can have one version per screen. The game doesn't say which screen is
-// loading, but every screen loads its palettes in the same order: the palette read just before identifies it.
-// sPrevious = a hash of the last themed palette read (whole non-art files, and partial reads of table files).
-static u16 sPrevious;
-
-static u32 NextContext(u32 narcId, s32 fileId)
-{
-    u32 ctx = sPrevious;
-    sPrevious = (u16)(narcId * 0x9E37 + (u32)fileId * 0x79B9);
-    return ctx;
-}
-
-#if RH_TEST
-// Colour-id mode (test only; tools/rh/amoled reads it): each palette read takes slots of 256 colours, colour =
-// slot << 8 | index, and the log says which archive / file / part of 256 / screen context each slot is. The capture
-// tools match screenshots taken this way with the owner's edited ones.
-// (The log lives on the system heap, allocated on first use: overlay 129 has no room for it. The tools find it by
-// its two magic words, "RHPD" and its complement.)
-struct RhPalLog { u32 magic, magic2, count; u16 narc[64], file[64], ctx[64]; };
-static struct RhPalLog *sLog;
-
-// colours [first, first + n) of a palette file
-static void IdColours(u32 narcId, s32 fileId, u32 first, u16 *colors, u32 n, u32 ctx)
-{
-    u32 i, slot = 0;
-    if (sLog == NULL)
-    {
-        sLog = Heap_Alloc(0, sizeof(struct RhPalLog));
-        if (sLog == NULL)
-            return;
-        sLog->magic = 0x52485044;
-        sLog->magic2 = ~sLog->magic;
-        sLog->count = 0;
-    }
-    for (i = 0; i < n; i++)
-    {
-        if (i == 0 || ((first + i) & 255) == 0)
-        {
-            slot = sLog->count++ & 63;
-            sLog->narc[slot] = (u16)narcId;
-            sLog->file[slot] = (u16)(fileId | ((first + i) >> 8) << 12);
-            sLog->ctx[slot] = (u16)ctx;
-        }
-        colors[i] = (u16)(slot << 8 | ((first + i) & 255));
-    }
-}
-#endif
-
-// data/rh_amoled.bin (tools/rh/gen_rh_amoled.py): "RHA4", entry count, a bit mask of the archives in it (320 bits),
-// then the entries { u32 narc << 16 | file, u32 screen context (0xFFFFFFFF: any screen), u32 offset of the colours,
-// u32 colour count | where the colours start in the palette file << 16 } sorted. Every palette
-// file of the UI archives is in it once for any screen, plus a version for each screen the owner coloured it
-// differently on.
-#define AM_MAGIC   0x34414852
-#define AM_HEADER  48
-#define AM_ANY     0xFFFFFFFF
-static u32 sArcMask[10];
-static u32 *sAmBlocks;      // the table's entries in blocks of AM_BLOCK: each block's first (key, context), read once
-static u32 sAmCount;
-static u32 *sAmCache;       // the block read last (a screen loads files of one archive one after another), sAmCacheB
-static u32 *sAmFile;        // the table, open
-#define AM_BLOCK 32
-static void *SafeAlloc(u32 size);
-
-// Opens the table and looks (narc, file, context) up: the file position of its colours (the table stays open), or 0
-// (closed). With the blocks' first keys in memory: one read of the block, one of the entry's header.
-static u32 sAmCacheB = 0xFFFFFFFF;
-static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u32 *count)
-{
-    u32 hdr[12], key = narcId << 16 | (u32)fileId, i, b, n, *e;
-    if (narcId >= 320 || (sAmBlocks != NULL && !(sArcMask[narcId >> 5] & 1u << (narcId & 31))))
-        return 0;
-    if (sAmFile == NULL)                       // (opened once, kept open: opening by path costs a directory search)
-    {
-        if ((sAmFile = SafeAlloc(FSFILE_SIZE)) == NULL)
-            return 0;
-        FS_InitFile(sAmFile);
-        if (!FS_OpenFile(sAmFile, "data/rh_amoled.bin"))
-        {
-            Heap_Free(sAmFile);
-            sAmFile = NULL;
-            return 0;
-        }
-    }
-    file = sAmFile;
-    if (sAmBlocks == NULL)
-    {
-        FS_SeekFile(file, 0, 0);
-        if (FS_ReadFile(file, hdr, AM_HEADER) != AM_HEADER || hdr[0] != AM_MAGIC)
-            goto none;
-        for (i = 0; i < 10; i++)
-            sArcMask[i] = hdr[2 + i];
-        n = hdr[1];
-        if ((sAmCache == NULL && (sAmCache = SafeAlloc(AM_BLOCK * 16)) == NULL)
-            || (sAmBlocks = SafeAlloc((n + AM_BLOCK - 1) / AM_BLOCK * 8)) == NULL)
-            goto none;
-        for (b = 0; b * AM_BLOCK < n; b++)
-        {
-            FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 16, 0);
-            FS_ReadFile(file, sAmBlocks + b * 2, 8);
-        }
-        sAmCount = n;
-    }
-    // the last block starting at or before (key, ctx); then the entry in it
-    for (b = 0; (b + 1) * AM_BLOCK < sAmCount
-         && (sAmBlocks[b * 2 + 2] < key || (sAmBlocks[b * 2 + 2] == key && sAmBlocks[b * 2 + 3] <= ctx)); b++)
-        ;
-    n = sAmCount - b * AM_BLOCK < AM_BLOCK ? sAmCount - b * AM_BLOCK : AM_BLOCK;
-    if (b != sAmCacheB)
-    {
-        FS_SeekFile(file, AM_HEADER + b * AM_BLOCK * 16, 0);
-        FS_ReadFile(file, sAmCache, n * 16);
-        sAmCacheB = b;
-    }
-    for (i = 0, e = sAmCache; i < n; i++, e += 4)
-        if (e[0] == key && e[1] == ctx)
-        {
-            *count = e[3] & 0xFFFF;
-            *start = e[3] >> 16;
-            return e[2];
-        }
-none:
-    return 0;
-}
-
-// A read of bytes [offset, offset + size) of a palette file landed at dst: swap the colours in it for the theme's.
-// whole: a whole file (its screen context was counted by the caller: ctx); else a partial read: some screens read
-// only a few colours of a palette file, e.g. the battle move buttons' type colours (counted here when the file is a
-// UI palette).
-static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx)
-{
-    u32 *file = NULL;
-    u32 theme = RHCT_UiTheme(), pos, start, count, a, b;
-    if (size == 0 || (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS))
-        return;
-    pos = AmoledFind(file, narcId, fileId, AM_ANY, &start, &count);
-    if (pos == 0)
-        return;
-    if (!whole)
-        ctx = NextContext(narcId, fileId);
-    a = offset > start ? offset : start;
-    b = offset + size < start + count * 2 ? offset + size : start + count * 2;
-#if RH_TEST
-    if (theme == RH_THEME_IDS)
-    {
-        if (a < b && !((a - start) & 1))
-            IdColours(narcId, fileId, (a - start) / 2, (u16 *)(dst + a - offset), (b - a) / 2, ctx);
-        return;
-    }
-#endif
-    // this screen's version of the palette, if the owner coloured it differently here (else the one found above)
-    {
-        u32 s2, c2, p2 = AmoledFind(file, narcId, fileId, ctx, &s2, &c2);
-        if (p2 != 0)
-            pos = p2;
-    }
-    if (a < b && !((a - start) & 1))
-    {
-        file = sAmFile;
-        FS_SeekFile(file, pos + a - start, 0);
-        FS_ReadFile(file, dst + a - offset, (b - a) & ~1u);
-    }
-}
-
-// Colours some screens write by code (not from a palette file): constants in their overlays' literal pools, swapped
-// in RAM while the overlay is loaded (each palette load checks; the code next to the constant must be the expected
-// one, so another overlay at the same address is never touched). The overlay comes back from the ROM unchanged.
-struct CodeColour { u32 addr; u16 vanilla, amoled; u32 guard; u16 guardValue; };
-static const struct CodeColour sCodeColours[] = {
-    // main menu (ov74): window fill (palette 1 colour 15) and the bottom screen's backdrop
-    { 0x02227ACC, 0x6B5A, 0x0000, 0x02227822, 0x8001 },
-    { 0x02227CB8, 0x6B5A, 0x0000, 0x02227C6A, 0x87D0 },
-    { 0x02228B84, 0x7D8C, 0x0000, 0x02228A6E, 0x8001 },
-    { 0x0222AC18, 0x7D8C, 0x0000, 0x0222ABC6, 0x8001 },
-};
-
-static void ThemeCodeColours(void)
-{
-    u32 i;
-    for (i = 0; i < NELEMS(sCodeColours); i++)
-    {
-        const struct CodeColour *c = &sCodeColours[i];
-        if (*(u16 *)c->guard == c->guardValue && *(u16 *)c->addr == c->vanilla)
-            *(u16 *)c->addr = c->amoled;
-    }
-}
-
-// Screen fingerprint: some screens show a palette that another screen loaded (Pokedex pages, battle menus, bag
-// pockets...), and the owner coloured it differently on each. A hash of the background tile maps of both screens
-// says which one is showing; it is worked out every frame (AMOLED only) by a task on the main queue.
-// the "vwait" queue: run by the main loop right after the screen's vertical-blank callback (which copies the game's
-// palettes, tile maps and sprites to the hardware), so the theme's changes are in before the frame is drawn
-#define SysTask_CreateOnVWaitQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E374 | 1))
-#define SysTask_CreateOnVBlankQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E33C | 1))
-struct RhScreenSig { u32 magic, sig, shown, patches, rows; };
-struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0 };   // (the test tools read it)
-static BOOL sTaskMade;
-static u32 *sPatch;         // the shown screen's tile patches (see TilePatches), sorted by address
-static u32 sPatchCount;
-u32 sCmMap;                 // the battle Check Moves map re-pointed at its type rows (src/battle/rh_hptext.c), or 0
-
-// Each map's quick checksum (as it is, theme's patches and all) and its part of the fingerprint: a map is fingerprinted
-// the long way only when its checksum changes (they rarely do; every cell the long way each frame overran the
-// vertical blank and slowed the game down)
-static u32 sMapQuick[8], sMapHash[8];
-static u32 ScreenSig(void)
-{
-    u32 h = 2166136261u, eng, bg, i, lo, prev;
-    for (eng = 0; eng < 2; eng++)
-    {
-        u32 io = eng ? 0x04001000 : 0x04000000, disp = *(vu32 *)io;
-        for (bg = 0; bg < 4; bg++)
-        {
-            u32 cnt, cm, q, hb;
-            const vu16 *map;
-            if (!(disp & (0x100u << bg)))
-                continue;
-            cnt = *(vu16 *)(io + 8 + bg * 2);
-            map = (const vu16 *)((eng ? 0x06200000 : 0x06000000 + ((disp >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800);
-            h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
-            // (multiplied, not just rotated: rows moved by a few rows must change it too)
-            for (i = 0, q = (u32)map ^ sCmMap; i < 0x600 / 4; i++)
-                q = (q ^ ((const vu32 *)map)[i]) * 16777619u;
-            if (q == sMapQuick[eng * 4 + bg])
-            {
-                h = (h ^ sMapHash[eng * 4 + bg]) * 16777619u;
-                continue;
-            }
-            // tile patches on the map (palette numbers / tile numbers of cells, "map patches"): hashed as the game
-            // drew them. The patches are sorted by address like the map: found once, then walked along with it
-            {
-                u32 a = (u32)map - 0x06000000, k, hi = sPatchCount;
-                lo = 0;
-                while (lo < hi)
-                {
-                    k = (lo + hi) / 2;
-                    if ((sPatch[k] & 0x7FFFFF) < a)
-                        lo = k + 1;
-                    else
-                        hi = k;
-                }
-            }
-            // tile numbers as steps from the cell before's (cells without a tile skipped): text windows get their
-            // tiles where the game finds room (what was open before decides), the same screen must give the same
-            // fingerprint
-            cm = (u32)map == sCmMap;
-            prev = 0;
-            hb = 2166136261u;
-            for (i = 0; i < 0x600 / 2; i++)
-            {
-                u32 e = map[i], t;
-                if (lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < (u32)&map[i] + 2 - 0x06000000)
-                {
-                    u32 a = (u32)&map[i] - 0x06000000;
-                    for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a; lo++)
-                        ;
-                    for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 2; lo++)
-                    {
-                        u32 p = sPatch[lo], sh = (p & 1) * 8 + (p >> 23 & 1) * 4;
-                        if ((e >> sh & 15) == (p >> 28 & 15))
-                            e = (e & ~(15u << sh)) | (p >> 24 & 15) << sh;
-                    }
-                }
-                if (cm && i >= 12 * 16 && i < 36 * 16 && ((e >> 12) == 7 || (e >> 12) == 8 || (e >> 12) == 10))
-                    e = (e & 0x0FFF) | 12u << 12;      // (as the game drew it: palette 12)
-                if ((t = e & 0x3FF) != 0)
-                {
-                    e = (e & ~0x3FFu) | ((t - prev) & 0x3FF);
-                    prev = t;
-                }
-                hb = (hb ^ e) * 16777619u;
-            }
-            sMapQuick[eng * 4 + bg] = q;
-            sMapHash[eng * 4 + bg] = hb;
-            h = (h ^ hb) * 16777619u;
-        }
-    }
-    return h;
-}
-
-// data/rh_amoled_pages.bin (tools/rh/gen_rh_amoled.py): "RHPG", screen count, row count, then the screens
-// { u32 fingerprint, u32 offset } sorted; a screen's offset points at { u32 n, n x { u32 row, u32 target row } }; then
-// the rows, 16 colours each (8 words) from offset 12 + screens * 8. A palette row (16 colours) that screens sharing it
-// want in different versions is listed once per version; showing a screen = every live copy of a version of one of
-// its rows (in palette RAM and in the game's palette buffers in main RAM) becomes the screen's version. One pass over
-// the memory for all of them.
 // The game's palette buffers (PaletteData_AllocBuffers / _FreeBuffers, hooked below): the live copies of the
 // palettes besides palette RAM.
 #define PaletteData_SetBuffers ((void (*)(void *, u32, void *, void *, u32))(0x0200310C | 1))
-#define PG_MAX_BUFS 24
-static struct { u32 *unfaded, *faded, size, id; u8 *pd; } sBufs[PG_MAX_BUFS];
+struct RhPalBuf gRhBufs[PG_MAX_BUFS];
+#define sBufs gRhBufs
 
 // a tracked buffer the game still uses (its PaletteData still points at it): never write into freed memory
-static BOOL BufLive(u32 i)
+BOOL RH_BufLive(u32 i)
 {
     return sBufs[i].unfaded != NULL && *(u32 **)(sBufs[i].pd + sBufs[i].id * 20) == sBufs[i].unfaded
         && *(u32 **)(sBufs[i].pd + sBufs[i].id * 20 + 4) == sBufs[i].faded;
 }
+#define BufLive RH_BufLive
 
-// heap 0 (the system heap) only when the game keeps plenty: a starved heap 0 can hang the game
+// heap 0 (the system heap) only when the game keeps plenty: a starved heap 0 can hang the game. (Measured
+// 2026-11-04, test builds' gRhHeap0: with the Default theme the game's own use of heap 0 hardly moves - battles,
+// menus, saving: under 100 bytes - and about 47-52 KB stay free; 20 KB kept for it)
 #define GF_ExpHeap_FndGetTotalFreeSize_ ((u32 (*)(u32))(0x0201ABEC | 1))
-static void *SafeAlloc(u32 size)
+void *RH_ThemeSafeAlloc(u32 size)
 {
-    if (GF_ExpHeap_FndGetTotalFreeSize_(0) < size + 0x8000)
+    if (GF_ExpHeap_FndGetTotalFreeSize_(0) < size + 0x5000)
         return NULL;
     return Heap_AllocAtEnd(0, size);
 }
+#define SafeAlloc RH_ThemeSafeAlloc
 
 // PaletteData_AllocBuffers (arm9 0x02003120)
 void RH_PaletteData_AllocBuffers(void *plttData, u32 bufferId, u32 size, u32 heapId)
@@ -388,103 +89,6 @@ void RH_PaletteData_FreeBuffers(void *plttData, u32 bufferId)
     Heap_Free(buf[1]);
 }
 
-#define PG_MAGIC   0x47504852
-#define PG_MAX     96
-struct PgRow { u32 c[8]; u32 target; };
-static u32 sLastSig;
-
-static void ReplaceRows(u32 *w, u32 *end, struct PgRow *row, u32 n, u32 bloom)
-{
-    u32 i, j;
-    for (; w + 8 <= end; w++)
-    {
-        if (!(bloom & 1u << (w[0] & 31)))
-            continue;
-        for (i = 0; i < n; i++)
-        {
-            if (w[0] != row[i].c[0] || row[i].target == i)
-                continue;
-            for (j = 1; j < 8 && w[j] == row[i].c[j]; j++)
-                ;
-            if (j == 8)
-            {
-                for (j = 0; j < 8; j++)
-                    w[j] = row[row[i].target].c[j];
-                w += 7;
-                break;
-            }
-        }
-    }
-}
-
-// Tile patches: where the owner gave pixels that share a palette entry different colours on one screen, those pixels'
-// tile data (background or sprite VRAM, 4bpp) are pointed at a spare entry of the same palette row, which the
-// screen's palette version colours. Each patch: VRAM offset from 0x06000000 (bits 0-22), which half of the byte (23),
-// the entry it had (24-27), the spare one (28-31). Re-applied every frame while the screen shows (the game may redraw), undone
-// when it changes.
-static u16 *sPatchVal;       // each patched VRAM word as the theme left it (after sPatch's items), for the undo
-static void TilePatches(BOOL undo)
-{
-    u32 i, lastA = 0, ok = 0;
-    for (i = 0; i < sPatchCount; i++)
-    {
-        u32 e = sPatch[i], a = 0x06000000 + (e & 0x7FFFFF), sh = (a & 1) * 8 + (e >> 23 & 1) * 4;
-        vu16 *b = (vu16 *)(a & ~1u);             // (VRAM takes no byte writes)
-        u32 from = undo ? e >> 28 & 15 : e >> 24 & 15, to = undo ? e >> 24 & 15 : e >> 28 & 15;
-        // undo only words still as the theme left them: the game may already have drawn the next screen there, and
-        // a value that happens to equal a patched one must not be "undone" (that broke the next screen's maps)
-        if (undo)
-        {
-            if ((a & ~1u) != lastA)
-            {
-                lastA = a & ~1u;
-                ok = sPatchVal == NULL || *b == sPatchVal[i];
-            }
-            if (!ok)
-                continue;
-        }
-        if ((*b >> sh & 15) == from)
-            *b = (u16)((*b & ~(15u << sh)) | to << sh);
-    }
-    if (!undo && sPatchVal != NULL)
-        for (i = 0; i < sPatchCount; i++)
-            sPatchVal[i] = *(vu16 *)((0x06000000 + (sPatch[i] & 0x7FFFFF)) & ~1u);
-}
-
-// Palette index patches: on a screen, colour c for palette RAM entry idx (0-1023: main BG, main OBJ, sub BG, sub
-// OBJ), in palette RAM and the game's buffers for that palette (PaletteData ids 0 main BG, 1 sub BG, 2 main OBJ,
-// 3 sub OBJ): what the owner's picture needs there that the palette files can't give (colours set by code, rows
-// another screen loaded, colours under the hardware's dimming / blending, worked back). Set once when the screen
-// shows, so fades still work on them.
-static struct PgRow *sRows;  // the shown screen's row versions (pairs), kept: re-applied every frame, since the game
-static u32 sRowN, sBloom, sRowFrames;   // may load the screen's palettes after its tile maps (= after the screen counts as shown)
-
-static void ApplyRows(void)
-{
-    u32 i;
-    if (sRows == NULL || sRowFrames == 0)      // (the first second of a screen: the late loads)
-        return;
-    sRowFrames--;
-    ReplaceRows((u32 *)0x05000000, (u32 *)0x05000800, sRows, sRowN, sBloom);   // palette RAM, both screens
-    for (i = 0; i < PG_MAX_BUFS; i++)                                         // the game's palette buffers
-        if (BufLive(i))
-        {
-            ReplaceRows(sBufs[i].unfaded, sBufs[i].unfaded + sBufs[i].size / 4, sRows, sRowN, sBloom);
-            ReplaceRows(sBufs[i].faded, sBufs[i].faded + sBufs[i].size / 4, sRows, sRowN, sBloom);
-        }
-}
-
-static u32 *sIndexUndo;     // (idx << 16 | colour it had) for the shown screen's index patches, then (idx << 16 |
-                            // colour wanted): re-set every frame where the game's own colour came back (late loads),
-                            // then the colour palette RAM showed
-static u32 sIndexCount;
-#define IDX_MARK 0x8000     // bit 15 (unused by the hardware) on the colours the index patches write
-// an index patch's colour: its own, or (bit 31: a link) the colour another entry has now (palette RAM index in bits
-// 0-9: e.g. each bag pocket's colour, from the pocket's palette row the game loads)
-#define IdxWant(w) (((w) >> 31 ? ((vu16 *)0x05000000)[(w) & 1023] & 0x7FFF : (w) & 0x7FFF) | IDX_MARK)
-static u32 *sRegs;         // register patches of the shown screen: (offset from 0x04000000 << 16 | value)
-static u32 sRegCount;
-
 // the colour an entry has now: from the game's unfaded palette buffer when there is one (palette RAM may be mid-fade);
 // GetBuf(idx, TRUE): from its faded buffer (what the game's fades copy into palette RAM)
 u32 GetBuf(u32 idx, BOOL faded)          // (also called by the battle overlay: src/battle/rh_hptext.c)
@@ -496,9 +100,9 @@ u32 GetBuf(u32 idx, BOOL faded)          // (also called by the battle overlay: 
             return ((u16 *)(faded ? sBufs[i].faded : sBufs[i].unfaded))[off];
     return ((vu16 *)0x05000000)[idx];
 }
-#define GetIndex(idx) GetBuf(idx, FALSE)
 
-static void SetIndex(u32 idx, u32 c)
+// an entry's colour, in palette RAM and the game's buffers (also called by the battle overlay)
+void SetIndex(u32 idx, u32 c)
 {
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
     u32 i, id = sBufFor[idx >> 8], off = idx & 255;
@@ -511,288 +115,66 @@ static void SetIndex(u32 idx, u32 c)
         }
 }
 
-static u32 *sSigs;         // the file's screen list (fingerprint, offset) pairs, read once (system heap)
-static u32 sSigCount, sRowsAt;
+// The rest of the theme (data/rh_theme.bin), loaded the first time it is needed while the theme is AMOLED, and kept.
+// It goes where the system heap has room: its words holding its own addresses get the difference added.
+#define DC_FlushRange         ((void (*)(void *, u32))0x020D2894)                   // ARM
+#define IC_InvalidateRange    ((void (*)(void *, u32))0x020D28D0)                   // ARM
+static const struct RhThemeBlob *sBlob;
 
-// The screen list's entry for a fingerprint: the offset of its page, 0 (none), or bit 31 + a palette RAM index: the
-// screen comes in versions told apart by that entry's colour (the bag's pockets, a pressed button: the same tile
-// maps), each with a page of its own under the fingerprint mixed with the colour (tools/rh/amoled/learn.py)
-static u32 FindPage(u32 sig)
+static const struct RhThemeBlob *Blob(void)
 {
-    u32 file[FSFILE_SIZE / 4], hdr[3], lo, hi, mid;
-    if (sSigs == NULL)
-    {
-        FS_InitFile(file);
-        if (!FS_OpenFile(file, "data/rh_amoled_pages.bin"))
-            return 0;
-        if (FS_ReadFile(file, hdr, 12) == 12 && hdr[0] == PG_MAGIC && hdr[1] != 0)
-        {
-            sSigs = SafeAlloc(hdr[1] * 8);
-            if (sSigs == NULL)
-            {
-                FS_CloseFile(file);
-                return 0;          // (no room now: try again on the next screen)
-            }
-            FS_ReadFile(file, sSigs, hdr[1] * 8);
-            sSigCount = hdr[1];
-            sRowsAt = 12 + hdr[1] * 8;
-        }
-        FS_CloseFile(file);
-        if (sSigs == NULL)
-        {
-            sSigs = (u32 *)1;      // (no list in the ROM: never look again)
-            sSigCount = 0;
-        }
-    }
-    lo = 0; hi = sSigCount;
-    while (lo < hi)
-    {
-        mid = (lo + hi) / 2;
-        if (sSigs[mid * 2] == sig)
-            return sSigs[mid * 2 + 1];
-        if (sSigs[mid * 2] < sig)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    return 0;
-}
-
-static u32 *sPgFile;        // the pages file, open
-static void ShowScreen(u32 sig)
-{
-    u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
-    struct PgRow *row;
-    ent[1] = FindPage(sig);
-    if (ent[1] == 0 || ent[1] >> 31)
-        return;
-    gRhScreenSig.shown = sig;
-    if (sPgFile == NULL)                       // (opened once, kept open: opening by path costs a directory search,
-    {                                          // and a new screen's colours should be in before the frame is drawn)
-        if ((sPgFile = SafeAlloc(FSFILE_SIZE)) == NULL)
-            return;
-        FS_InitFile(sPgFile);
-        if (!FS_OpenFile(sPgFile, "data/rh_amoled_pages.bin"))
-        {
-            Heap_Free(sPgFile);
-            sPgFile = NULL;
-            return;
-        }
-    }
-    file = sPgFile;
-    FS_SeekFile(file, ent[1], 0);
-    FS_ReadFile(file, &n, 4);
-    mid = n;                         // (the real count, for the tile patches' offset)
-    hdr[1] = (sRowsAt - 12) / 8;
-    // its tile patches: after the pairs
-    FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
-    n = 0;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
-    {
-        sPatch = SafeAlloc(n * 6);
-        if (sPatch != NULL)
-        {
-            FS_ReadFile(file, sPatch, n * 4);
-            sPatchVal = (u16 *)(sPatch + n);
-            sPatchCount = n;
-        }
-    }
-    // its palette index patches: after the tile patches (what each entry had is kept, to undo them)
-    FS_SeekFile(file, ent[1] + 4 + mid * 8 + 4 + n * 4, 0);
-    pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
-    {
-        sIndexUndo = SafeAlloc(n * 12);
-        if (sIndexUndo != NULL)
-        {
-            FS_ReadFile(file, sIndexUndo + n, n * 4);
-            for (i = 0; i < n; i++)
-            {
-                pair[0] = sIndexUndo[n + i];
-                // (palette RAM gets the buffer's colour back too: palette RAM may not have it yet, the game's copy
-                // into it still to come; a later load straight into palette RAM is seen in ThemeTask)
-                sIndexUndo[i] = (pair[0] & 0x3FF0000) | (GetIndex(pair[0] >> 16 & 1023) & 0x7FFF);
-                sIndexUndo[2 * n + i] = sIndexUndo[i] & 0x7FFF;
-                // (palette RAM only for now: the row versions below find their rows in the game's buffers)
-                ((vu16 *)0x05000000)[pair[0] >> 16 & 1023] = (u16)IdxWant(pair[0]);
-            }
-        }
-        sIndexCount = sIndexUndo != NULL ? n : 0;
-    }
-    else if (n > 1024)
-        n = 0;
-    // its register patches: after the index patches
-    FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 16)
-    {
-        sRegs = SafeAlloc(n * 4);
-        if (sRegs != NULL)
-        {
-            FS_ReadFile(file, sRegs, n * 4);
-            sRegCount = n;
-        }
-    }
-    // its row versions last (many reads: the index patches above are in palette RAM before the vertical blank ends,
-    // a new screen has the owner's colours from its first frame), then the index patches again on top of them
-    n = mid > PG_MAX / 2 ? PG_MAX / 2 : mid;
-    row = n ? SafeAlloc(sizeof(struct PgRow) * n * 2) : NULL;
-    if (row != NULL)
-    {
-        // each patch: the row it finds (any version) and the version it writes, as two list items
-        for (i = 0; i < n; i++)
-        {
-            FS_SeekFile(file, ent[1] + 4 + i * 8, 0);
-            FS_ReadFile(file, pair, 8);
-            FS_SeekFile(file, 12 + hdr[1] * 8 + pair[0] * 32, 0);
-            FS_ReadFile(file, row[2 * i].c, 32);
-            FS_SeekFile(file, 12 + hdr[1] * 8 + pair[1] * 32, 0);
-            FS_ReadFile(file, row[2 * i + 1].c, 32);
-            row[2 * i].target = 2 * i + 1;
-            row[2 * i + 1].target = 2 * i + 1;
-            bloom |= 1u << (row[2 * i].c[0] & 31);
-        }
-        sRows = row; sRowN = n * 2; sBloom = bloom; sRowFrames = 60;
-        ApplyRows();
-    }
-    for (i = 0; i < sIndexCount; i++)
-        SetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023, IdxWant(sIndexUndo[sIndexCount + i]));
-
-}
-
-// The register patches again in every vertical blank (vblank queue, after the game's own tasks there): ThemeTask runs
-// only when the game waits for the vertical blank (every other frame on 30 fps screens), and the game sets its
-// registers every vertical blank (the field menu's dimming blend would come back every other frame)
-static void RegTask(void *task, void *data)
-{
-    u32 i;
-    (void)task; (void)data;
-    for (i = 0; i < sRegCount; i++)
-        *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
-    // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
-    // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
-    // faded buffer: fades go on, also the ones of a single row, e.g. a blinking icon). What the game loaded is what
-    // the undo puts back
-    for (i = 0; i < sIndexCount; i++)
-    {
-        u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = IdxWant(sIndexUndo[sIndexCount + i]);
-        u32 c = ((vu16 *)0x05000000)[idx];
-        if (c != want && c != GetBuf(idx, TRUE))
-        {
-            sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
-            ((vu16 *)0x05000000)[idx] = (u16)want;
-        }
-    }
-}
-
-static u32 sLastBase;       // the fingerprint before a version's colour went in (FindPage)
-static void ThemeTask(void *task, void *data)
-{
-    u32 theme = RHCT_UiTheme(), sig, i;
-    (void)task; (void)data;
+    u32 file[FSFILE_SIZE / 4], hdr[4], rel[32], i, k, n, theme = RHCT_UiTheme();
+    u8 *base;
     if (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS)
-        return;
-    sig = ScreenSig();
-    gRhScreenSig.sig = sig;
-    if (theme != RH_THEME_AMOLED)
-        return;
-#if RH_TEST
-    if (gRhScreenSig.rows == 0x45474150)       // (test tools: "PAGE" = no screen pages, for the captures learn.py reads)
-        sig = 0;
-#endif
+        return NULL;
+    if (sBlob != NULL)
+        return sBlob;
+    FS_InitFile(file);
+    if (!FS_OpenFile(file, "data/rh_theme.bin"))
+        return NULL;
+    base = NULL;
+    if (FS_ReadFile(file, hdr, 16) == 16 && hdr[0] == RHTB_MAGIC && (base = SafeAlloc(hdr[2])) != NULL)
     {
-        // the version the entry's colour says; one without a page while the screen stays (the version's own colours
-        // reached that entry) keeps the version shown
-        u32 v = sig;
-        if ((i = FindPage(sig)) >> 31)
+        FS_ReadFile(file, base, hdr[1]);
+        for (i = hdr[1]; i < hdr[2]; i++)
+            base[i] = 0;
+        for (n = hdr[3]; n != 0; n -= k)
         {
-            v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
-            if (FindPage(v) == 0 && sig == sLastBase)
-                v = sLastSig;
+            k = n < 32 ? n : 32;
+            FS_ReadFile(file, rel, k * 4);
+            for (i = 0; i < k; i++)
+                *(u32 *)(base + rel[i]) += (u32)base - RHTB_BASE;
         }
-        sLastBase = sig;
-        sig = v;
+        DC_FlushRange(base, hdr[2]);
+        IC_InvalidateRange(base, hdr[2]);
+        sBlob = (const struct RhThemeBlob *)base;
     }
-    if (sig != sLastSig)
-    {
-        sLastSig = sig;
-        if (sPatch != NULL)
-        {
-            TilePatches(TRUE);
-            Heap_Free(sPatch);
-            sPatchVal = NULL;
-            sPatch = NULL;
-            sPatchCount = 0;
-        }
-        if (sIndexUndo != NULL)
-        {
-            u32 i;
-            for (i = sIndexCount; i-- > 0;)
-            {
-                // the game's buffers get what they had, palette RAM what it showed: the game can load colours
-                // straight into palette RAM (the battle HP boxes), leaving a stale buffer (the intro's sky blue).
-                // Only where the theme's colour (IDX_MARK) is still there: what the game loaded since (the next
-                // screen's palettes, often loaded before its tile maps make it count as shown) stays
-                u32 idx = sIndexUndo[i] >> 16 & 1023, ram = ((vu16 *)0x05000000)[idx];
-                if (GetIndex(idx) & IDX_MARK)
-                    SetIndex(idx, sIndexUndo[i] & 0x7FFF);
-                ((vu16 *)0x05000000)[idx] = (u16)(ram & IDX_MARK ? sIndexUndo[2 * sIndexCount + i] : ram);
-            }
-            sIndexCount = 0;                    // (first: RegTask may run in between)
-            Heap_Free(sIndexUndo);
-            sIndexUndo = NULL;
-        }
-        if (sRows != NULL)
-        {
-            Heap_Free(sRows);
-            sRows = NULL;
-        }
-        if (sRegs != NULL)
-        {
-            sRegCount = 0;                      // (first: RegTask may run in between)
-            Heap_Free(sRegs);
-            sRegs = NULL;
-        }
-        ShowScreen(sig);
-        // (the maps' cached parts were hashed with the old screen's patches undone: hash them again)
-        for (i = 0; i < 8; i++)
-            sMapQuick[i] = 0;
-    }
-    TilePatches(FALSE);
-    ApplyRows();
-    {
-        u32 i;
-        for (i = 0; i < sIndexCount; i++)
-        {
-            // the theme writes its colours with IDX_MARK: an entry without it was loaded by the game after the screen
-            // showed (even in the very colour wanted), and its new colour is the one to put back on undo, not what
-            // the entry held before the load (e.g. the battle intro's sky under the HP boxes)
-            u32 idx = sIndexUndo[sIndexCount + i] >> 16 & 1023, want = IdxWant(sIndexUndo[sIndexCount + i]);
-            u32 c = GetIndex(idx);
-            if (c != want)
-            {
-                sIndexUndo[i] = idx << 16 | (c & 0x7FFF);
-                sIndexUndo[2 * sIndexCount + i] = c & 0x7FFF;
-                SetIndex(idx, want);
-            }
-            // (loaded straight into palette RAM: RegTask, every vertical blank)
-        }
-    }
-    {
-        const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's parts (src/battle/rh_hptext.c)
-        // (the register patches: RegTask, every vertical blank)
-        sCmMap = 0;
-        if (hp[0] == 0x54504852 && hp[1] == 0x31545854)
-        {
-            sCmMap = ((u32 (*)(void))hp[5])();      // battle move buttons (the Check Moves map it re-pointed, or 0)
-            ((void (*)(void))hp[2])();              // HP-box text
-        }
+    FS_CloseFile(file);
+    return sBlob;
+}
 
-    }
+static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
+{
+    const struct RhThemeBlob *b = Blob();
+    if (b != NULL)
+        b->palette(narcId, fileId, data, fileSize);
+}
+
+static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx)
+{
+    const struct RhThemeBlob *b = Blob();
+    if (b != NULL)
+        b->read(narcId, fileId, offset, size, dst, whole, ctx);
 }
 
 // GX_LoadOAM (arm9 0x020CFDC8) and the sprite library's main-screen OAM loader (0x020B78C4, through a pointer table),
 // both (source, offset, size), hooked (armhooks): the copy (16-bit: it can be a single entry's attribute), then the
 // battle HP-box text overlays back in (src/battle/rh_hptext.c), right after every copy of the game's sprites
+#if RH_TEST
+// test builds: the system heap's smallest free size seen (every frame, any theme: the tools compare the themes)
+struct RhHeap0 { u32 magic, min, now; };
+struct RhHeap0 gRhHeap0;     // (overlay 129 has no initialised data: the magic "RHH0" is set on the first frame)
+#endif
 static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
 {
     const u32 *hp = (const u32 *)0x023C4000;
@@ -800,8 +182,23 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
     const u16 *from = (const u16 *)src;
     for (size >>= 1; size != 0; size--)
         *dst++ = *from++;
+#if RH_TEST
+    {
+        u32 *handles = *(u32 **)0x021D1584;
+        u8 *idxs = *(u8 **)(0x021D1584 + 0x10);
+        gRhHeap0.magic = 0x30484852;
+        if (handles != NULL && idxs != NULL && handles[idxs[0]] != 0)
+        {
+            gRhHeap0.now = GF_ExpHeap_FndGetTotalFreeSize_(0);
+            if (gRhHeap0.min == 0 || gRhHeap0.now < gRhHeap0.min)
+                gRhHeap0.min = gRhHeap0.now;
+        }
+    }
+#endif
     if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
         ((void (*)(void))hp[part])();
+    if (sBlob != NULL && RHCT_UiTheme() == RH_THEME_AMOLED)
+        sBlob->oam(offset, size);
 }
 
 void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
@@ -812,39 +209,6 @@ void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
 void RH_LoadOamMain(const u32 *src, u32 offset, u32 size)
 {
     LoadOam(src, offset, size, 3);
-}
-
-static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
-{
-    if (!sTaskMade)
-    {
-        sTaskMade = SysTask_CreateOnVWaitQueue(ThemeTask, NULL, 0) != NULL
-                    && SysTask_CreateOnVBlankQueue(RegTask, NULL, 0x7FFFFFFF) != NULL;
-    }
-    u32 theme, size, start, ctx;
-    if (data == NULL || data[0] != 'R' || data[1] != 'L' || data[2] != 'C' || data[3] != 'N')
-        return;
-    theme = RHCT_UiTheme();
-    if ((theme != RH_THEME_AMOLED && theme != RH_THEME_IDS) || IsArt(narcId))
-        return;                                              // Default (and Randomizer, for now): untouched
-    // NCLR: TTLP section at 0x10; its data at 0x18: format, extPltt, size, offset of the colours (from 0x18)
-    // (the size field is often bigger than the file: never write past its end)
-    size = *(u32 *)(data + 0x20);
-    start = 0x18 + *(u32 *)(data + 0x24);
-    if (fileSize < 0x28 || start >= fileSize)
-        return;
-    if (size > fileSize - start)
-        size = fileSize - start;
-    ctx = NextContext(narcId, fileId);
-#if RH_TEST
-    if (theme == RH_THEME_IDS)
-    {
-        IdColours(narcId, fileId, 0, (u16 *)(data + start), size / 2, ctx);
-        return;
-    }
-#endif
-    ThemeRead(narcId, fileId, start, size, data + start, TRUE, ctx);
-    ThemeCodeColours();
 }
 
 static void *Uncompress(void *data, u32 heapId, BOOL atEnd, u32 *sizeOut)

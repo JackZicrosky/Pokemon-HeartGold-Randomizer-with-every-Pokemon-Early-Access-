@@ -350,7 +350,20 @@ $(BASE)/arm9.bin: $(ROMNAME) $(NDSTOOL) $(VENV_ACTIVATE)
 	$(NARCHIVE) extract $(FILESYS)/a/0/2/8 -o $(BUILD)/a028/ -nf
 endif
 
-all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin
+# romhack: the AMOLED theme's loadable part (rhtheme/, include/rh/rh_theme_blob.h): linked at its own address
+# against overlay 129's symbols, calls out of it through addresses (-mlong-calls), packed with its relocations
+RHTHEME_SRCS := $(wildcard rhtheme/*.c)
+RHTHEME_OBJS := $(patsubst rhtheme/%.c,$(BUILD)/rhtheme/%.o,$(RHTHEME_SRCS))
+$(BUILD)/rhtheme/%.o: rhtheme/%.c $(OUTPUT)
+	mkdir -p $(BUILD)/rhtheme
+	$(CC) -MMD -MF $(basename $@).d $(CFLAGS) -mlong-calls -c $< -o $@
+-include $(RHTHEME_OBJS:.o=.d)
+$(BUILD)/rhtheme_linked.o: $(RHTHEME_OBJS) $(BUILD)/rom_gen.ld rhtheme/linker.ld $(THUMB_HELP)
+	$(LD) $(BUILD)/rom_gen.ld -T rhtheme/linker.ld --emit-relocs -o $@ $(RHTHEME_OBJS) $(THUMB_HELP)
+data/rh/rh_theme.bin: $(BUILD)/rhtheme_linked.o tools/rh/mk_theme_blob.py
+	$(PYTHON) tools/rh/mk_theme_blob.py $< $@
+
+all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin data/rh/rh_theme.bin
 	@# find and delete macOS and windows files
 	find . \( -name "*.DS_Store" -o -name "*:Zone.Identifier" \) -delete
 	$(PYTHON) scripts/make.py $(CFLAGS)
@@ -363,6 +376,8 @@ all: $(OUTPUT) $(OVERLAY_OUTPUTS) $(TOOLS) $(BASE)/arm9.bin
 	cp data/rh/rh_amoled.bin $(FILESYS)/data/rh_amoled.bin
 	cp data/rh/rh_amoled_pages.bin $(FILESYS)/data/rh_amoled_pages.bin
 	cp data/rh/rh_hpart.bin $(FILESYS)/data/rh_hpart.bin
+	cp data/rh/rh_theme.bin $(FILESYS)/data/rh_theme.bin
+	grep -qx "/data/rh_theme.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_theme.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_hpart.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_hpart.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_amoled_pages.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled_pages.bin" >> $(BASE)_dsrom/path_order.txt
 	grep -qx "/data/rh_amoled.bin" $(BASE)_dsrom/path_order.txt || echo "/data/rh_amoled.bin" >> $(BASE)_dsrom/path_order.txt

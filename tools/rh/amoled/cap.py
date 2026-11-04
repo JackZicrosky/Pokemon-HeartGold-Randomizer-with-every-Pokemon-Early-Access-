@@ -48,18 +48,39 @@ def log_addr():
     # the log is on the heap (allocated by the first id-mode palette read); its signature is also in overlay 129's code
     ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
     sig = bytes([0x44, 0x50, 0x48, 0x52, 0xBB, 0xAF, 0xB7, 0xAD])     # "RHPD", ~"RHPD"
+    code = []                                  # the theme's code: overlay 129, and its loaded file (rhtheme/:
+    b = ram.find(b'RHTB')                       # "RHTB", then pointers into itself)
+    while b >= 0:
+        f = int.from_bytes(ram[b + 4:b + 8], 'little') - 0x02000000
+        if b < f < b + 0x10000:
+            code.append((b, b + 0x10000))
+        b = ram.find(b'RHTB', b + 1)
     i = ram.find(sig)
-    while i >= 0 and 0x023D8000 <= 0x02000000 + i < 0x023E0000:
+    while i >= 0 and (0x023D8000 <= 0x02000000 + i < 0x023E0000 or any(x <= i < y for x, y in code)):
         i = ram.find(sig, i + 1)
     return 0x02000000 + i + 4 if i >= 0 else None      # +4: the reads below expect count at LOG + 4
+SIG = [None]
+def sig_addr():
+    # gRhScreenSig ("RHSG"): in the AMOLED theme's code file, loaded onto the heap (rhtheme/): found once per load
+    if SIG[0] is not None and bytes(h.emu.memory.read(SIG[0], SIG[0] + 3, 1, False))[:4] == b'RHSG':
+        return SIG[0]
+    ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
+    SIG[0] = 0x02000000 + j if j >= 0 else None
+    return SIG[0]
+PENDING_NOPAGES = [False]
+def apply_nopages():
+    a = sig_addr() if PENDING_NOPAGES[0] else None
+    if a is not None:
+        for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
+            h.emu.memory.write_byte(a + 16 + i, v)
+        PENDING_NOPAGES[0] = False
 for k in sys.argv[3:]:
+    apply_nopages()
     if k == 'theme':
         for a in play.find_all_rh_settings(h.emu.memory):
             h.emu.memory.write_byte(a + 213, {'id': 3, 'am': 2}.get(mode, 0))
         if mode == 'am' and os.environ.get('NOPAGES'):          # (the captures learn.py reads: no screen pages)
-            ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
-            for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
-                h.emu.memory.write_byte(0x023D8000 + j + 16 + i, v)
+            PENDING_NOPAGES[0] = True                            # (once the theme's code is loaded: next token)
     elif k == 'idreset':
         a = log_addr()
         if a is not None:
@@ -70,8 +91,8 @@ for k in sys.argv[3:]:
             # wait (up to 2 s) for the screen the colour-id capture saw (same fingerprint): the runs drift apart
             want = json.load(open('%s/id_%s.json' % (OUT, n))).get('sig')
             for _ in range(120):
-                ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
-                if want is None or j < 0 or int.from_bytes(ram[j + 4:j + 8], 'little') == want:
+                j = sig_addr()
+                if want is None or j is None or h.emu.memory.unsigned.read_long(j + 4) == want:
                     break
                 h.run(1)
             else:
@@ -85,8 +106,8 @@ for k in sys.argv[3:]:
         if a is not None:
             rd = lambda o: m[a+o] | (m[a+o+1] << 8)
             cnt = rd(4) | rd(6) << 16
-            ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
-            sig = int.from_bytes(ram[j + 4:j + 8], 'little') if j >= 0 else None
+            j = sig_addr()
+            sig = h.emu.memory.unsigned.read_long(j + 4) if j is not None else None
             json.dump({'sig': sig, 'count': cnt, 'narc': [rd(8 + 2*i) for i in range(64)], 'file': [rd(136 + 2*i) for i in range(64)], 'ctx': [rd(264 + 2*i) for i in range(64)]},
                       open('%s/id_%s.json' % (OUT, n), 'w'))
             if cnt > 64: print('WARN', n, 'slots', cnt)
@@ -225,6 +246,45 @@ for k in sys.argv[3:]:
                     n += 1
             i = ram.find(pat, i + 1)
         print('pkset patched', n)
+    elif k.startswith('party6:'):                # party6:SPECIES/ITEM/BALL[/HP];...  every RAM party copy: the first
+        import struct                             # Pokemon cloned into slots 1-6 (count 6), each with its species,
+        specs = [tuple(int(x) for x in e.split('/')) for e in k[7:].split(';')]   # held item, Poke Ball (current HP)
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        def crypt(buf, seed):
+            out = bytearray(buf); x = seed
+            for i in range(0, len(buf), 2):
+                x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+                struct.pack_into('<H', out, i, struct.unpack_from('<H', buf, i)[0] ^ (x >> 16))
+            return out
+        ORDER = ['ABCD','ABDC','ACBD','ACDB','ADBC','ADCB','BACD','BADC','BCAD','BCDA','BDAC','BDCA',
+                 'CABD','CADB','CBAD','CBDA','CDAB','CDBA','DABC','DACB','DBAC','DBCA','DCAB','DCBA']
+        pat = struct.pack('<I', 6); n = 0; i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236 * 6:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                d = crypt(ram[o + 8:o + 136], chk)
+                if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
+                    ext = crypt(ram[o + 136:o + 236], pid)
+                    order = ORDER[((pid >> 13) & 31) % 24]
+                    A, D = order.index('A') * 32, order.index('D') * 32
+                    for slot, e in enumerate(specs[:6]):
+                        dd = bytearray(d); ee = bytearray(ext)
+                        struct.pack_into('<H', dd, A, e[0]); struct.pack_into('<H', dd, A + 2, e[1])
+                        dd[D + 0x1B] = e[2] if e[2] <= 16 else 4; dd[D + 0x1E] = e[2]
+                        if len(e) > 3: struct.pack_into('<H', ee, 6, e[3])
+                        c2 = sum(struct.unpack('<64H', dd)) & 0xFFFF
+                        q = o + slot * 236
+                        struct.pack_into('<IHH', ram, q, pid, struct.unpack_from('<H', ram, o + 4)[0], c2)
+                        ram[q + 8:q + 136] = crypt(dd, c2)
+                        ram[q + 136:q + 236] = crypt(ee, pid)
+                    struct.pack_into('<I', ram, i + 4, min(6, len(specs)))
+                    for j in range(i + 4, o + 236 * 6): h.emu.memory.write_byte(0x02000000 + j, ram[j])
+                    n += 1
+                    i += 236 * 6
+            i = ram.find(pat, i + 1)
+        print('party6 patched', n)
     elif k.startswith('rec:'):                   # rec:NAME[:FRAMES[:INPUT]]  every frame for FRAMES frames (default 300 = 5 s)
         # INPUT (held for the first 6 frames): a key (A B X Y U D l r S s L R) or Tx_y (touch). Frames identical to an
         # earlier one of the same recording are stored once; index.json gives the stored frame of every frame.
@@ -250,7 +310,9 @@ for k in sys.argv[3:]:
             if hs not in seen:
                 seen[hs] = 'f%03d.png' % fi; img.save(d + '/' + seen[hs])
             index.append(seen[hs])
-        json.dump({'mode': mode, 'input': inp, 'frames': index}, open(d + '/index.json', 'w'))
+        j = sig_addr() if mode == 'am' else None      # the screen fingerprint and the last page shown (a match: equal)
+        sg = [h.emu.memory.unsigned.read_long(j + 4 * q) for q in (1, 2)] if j else None
+        json.dump({'mode': mode, 'input': inp, 'frames': index, 'sig': sg}, open(d + '/index.json', 'w'))
         print('rec', name, nfr, 'frames', len(seen), 'distinct')
     elif k.startswith('ssave:'):                 # ssave:NAME / sload:NAME  emulator savestate (scratchpad/NAME.dst)
         h.emu.savestate.save_file(SP + '/' + k[6:] + '.dst')
@@ -315,9 +377,7 @@ for k in sys.argv[3:]:
             if hit: break
             h.run(1)
     elif k == 'nopages':                          # test builds: the AMOLED theme without its screen pages
-        ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
-        for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
-            h.emu.memory.write_byte(0x023D8000 + j + 16 + i, v)
+        PENDING_NOPAGES[0] = True; apply_nopages()
     elif k.startswith('poke:'):                   # poke:ADDR,HEXBYTES  write bytes into memory (test setups)
         a, _, hx = k[5:].partition(',')
         for i, v in enumerate(bytes.fromhex(hx)):
@@ -335,9 +395,26 @@ for k in sys.argv[3:]:
         print('peek', k[5:], bytes(h.emu.memory.read(int(a, 16), int(a, 16) + int(c or '4') - 1, 1, False)).hex())
     elif k.startswith('ramdump:'):              # ramdump:NAME  main RAM (4 MB) -> caps/NAME.ram
         open('%s/%s.ram' % (OUT, k[8:]), 'wb').write(bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))[:0x400000])
+    elif k == 'pc':                               # arm9 registers, a few frames apart (hangs)
+        for _ in range(6):
+            r = h.emu.memory.register_arm9
+            print('pc', hex(r.pc), 'lr', hex(r.lr), 'sp', hex(r.sp), [hex(getattr(r, 'r%d' % q)) for q in range(8)])
+            h.run(7)
+    elif k.startswith('blob:'):                  # blob:OFF[,OFF...]  words of the theme's loaded code (offsets from RHTB_BASE)
+        ram = bytes(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False)); bb = ram.find(b'RHTB')
+        while bb >= 0 and not (bb < int.from_bytes(ram[bb + 4:bb + 8], 'little') - 0x02000000 < bb + 0x10000):
+            bb = ram.find(b'RHTB', bb + 1)
+        print('blob', hex(0x02000000 + bb), [(o, hex(int.from_bytes(ram[bb + int(o, 16):bb + int(o, 16) + 4], 'little'))) for o in k[5:].split(',')])
+    elif k == 'heap0':                            # gRhHeap0 (src/rh_theme.c, test builds): heap 0 free, lowest seen
+        ram = bytes(h.emu.memory.read(0x023D8000, 0x023DFFFF, 1, False)); j = ram.find(b'RHH0'); got = None
+        while j >= 0:                             # (the struct: two sizes follow; the code's literal: addresses)
+            v = [int.from_bytes(ram[j + 4 * i:j + 4 * i + 4], 'little') for i in (1, 2)]
+            if all(v_ < 0x400000 for v_ in v): got = v; break
+            j = ram.find(b'RHH0', j + 1)
+        print('heap0', got)
     elif k == 'sigdbg':
-        ram = bytes(h.emu.memory.read(0x023D8000, 0x023FFFFF, 1, False)); j = ram.find(b'RHSG')
-        print('sigdbg', [int.from_bytes(ram[j + 4 * i:j + 4 * i + 4], 'little') for i in range(1, 5)])
+        j = sig_addr()
+        print('sigdbg', [h.emu.memory.unsigned.read_long(j + 4 * i) for i in range(1, 5)] if j else None)
     elif k == 'amdbg':
         for a in range(0x023D8000, 0x02400000, 4):
             if m[a] == 0x52 and m[a+1] == 0x48 and m[a+2] == 0x41 and m[a+3] == 0x44:

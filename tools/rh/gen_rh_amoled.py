@@ -29,6 +29,20 @@ EXTRA_UI = set()
 # files of filled archives that are not UI: never recoloured unless the owner did (battle backgrounds and platforms,
 # one palette per terrain and time of day: the owner kept them)
 NOFILL = {(7, f) for f in range(246)}
+# icon art in UI archives (owner, 2026-11-04: icons keep their own colours in every situation): the Poke Ball icons of
+# the summary (narc 162 files 49-61, one palette per kind of ball), the party's held-item / mail / capsule icons
+NOFILL |= {(162, f) for f in range(49, 62)} | {(21, 21)}
+# entries kept as the game has them (not filled): the party panels' outline anti-aliasing (index 7 of the normal,
+# switching, fainted and blue panel rows): owner, 2026-11-04: the de-selected leader's semicircle is all green
+KEEP = {(21, 16, 55), (21, 16, 71), (21, 16, 87), (21, 16, 103)}
+# entries set by the owner's rules for states the pictures don't show (every screen version too):
+# - battle bag item buttons (narc 77 file 3, entry 11 of each pocket colour's row): the pressed fill, black like the
+#   pressed pocket of the owner's picture 69 (the game's cream press flashed white, owner 2026-11-04)
+RULES = {(77, 3, r * 16 + 11): 0 for r in (0, 1, 8, 9, 10, 11)}
+# - battle command buttons (narc 7 file 246): pressing FIGHT steps its fill from the pressed white (entry 17, the owner's
+#   black, picture 67) through 18-20 to the normal fill (21, the owner's (4,4,4)): the steps between, (1..3 grey) the
+#   same way (they flashed pink and red); BAG's first step (34) likewise
+RULES.update({(7, 246, 18): 0x0421, (7, 246, 19): 0x0842, (7, 246, 20): 0x0C63, (7, 246, 34): 0x0421})
 SKIN_FILES = [(143, 30), (143, 24), (143, 0), (144, 20), (144, 14), (145, 4), (146, 10), (146, 4)]   # Pokegear skin 1 files
 NEAR = 3            # max channel distance for "nearest recoloured colour"
 CONSISTENT = 0.75
@@ -228,8 +242,13 @@ def main():
         for i, o in enumerate(c):
             if (n, f, i) in owner:
                 new[i] = owner[(n, f, i)] | (o & 0x8000); stats['owner'] += 1
+            elif (n, f, i) in KEEP:
+                stats['kept'] += 1
             elif n in fill_archives and (n, f) not in NOFILL:
                 new[i] = fill(n, f, o & 0x7FFF, i) | (o & 0x8000); stats['filled' if new[i] != o else 'kept'] += 1
+        for i in range(len(new)):
+            if (n, f, i) in RULES:
+                new[i] = RULES[(n, f, i)] | (c[i] & 0x8000)
         # every palette file outside the art archives (the colour-id mode uses the list too), and art files the owner
         # changed
         if (n not in ART and n < 320) or new != c:
@@ -239,7 +258,7 @@ def main():
             for ctx in contexts.get((n, f), ()):
                 var = list(new)
                 for i, t in by_ctx[(n, f, ctx)].items():
-                    if i < len(var):
+                    if i < len(var) and (n, f, i) not in RULES:
                         var[i] = t | (c[i] & 0x8000)
                 if var != new:
                     entries.append(((n << 16) | f, ctx, STARTS[(n, f)], var)); stats['screen versions'] += 1
@@ -268,7 +287,7 @@ def pages(loaded):
     """data/rh/rh_amoled_pages.bin (layout: src/rh_theme.c ShowScreen): screens that show a palette another screen
     loaded, coloured differently by the owner: per screen fingerprint, which rows (16 colours) become which version."""
     if not os.path.exists(SCREENS):
-        open(PAGES_OUT, 'wb').write(b'RHPG' + struct.pack('<II', 0, 0))
+        open(PAGES_OUT, 'wb').write(b'RHPG' + struct.pack('<III', 0, 0, 16) + struct.pack('<I', 0))
         return
     screens = json.load(open(SCREENS))
     # (narc, file, context) -> {screen: {index: colour}}
@@ -291,7 +310,7 @@ def pages(loaded):
         for name, cols in by.items():
             t = list(base)
             for i, c in cols.items():
-                if i < len(t):
+                if i < len(t) and (n, f, i) not in RULES:
                     t[i] = c | (t[i] & 0x8000)
             targets[name] = t
         for r in range(len(base) // 16):
@@ -344,6 +363,10 @@ def pages(loaded):
     for name, sc in screens.items():
         for a, v in sc.get('regs', []):
             regs[sc['sig']][a] = v
+    rules = {}                                 # fingerprint -> row rules (tools/rh/amoled/learn.py, rhtheme/ RowRules)
+    for name, sc in screens.items():
+        if sc.get('rules'):
+            rules[sc['sig']] = sc['rules']
     # the same screen in another state (e.g. a Pokemon with 4 moves: another tile map, so another fingerprint; the
     # same tile graphics) gets the palette versions, tile and register patches of the owner's picture. Not its index
     # patches: they set palette entries the other state uses for something else (4th move button)
@@ -353,13 +376,15 @@ def pages(loaded):
                 per_sig[a] = dict(per_sig.get(sc['sig'], {}))
                 vpatch[a] = list(vpatch.get(sc['sig'], []))
                 regs[a] = dict(regs.get(sc['sig'], {}))
+                if sc['sig'] in rules:
+                    rules[a] = rules[sc['sig']]
     # screens in versions (tools/rh/amoled/learn.py): the shared fingerprint points at the palette entry that tells
     # them apart (bit 31), each version's page is under its own fingerprint
     marks = {sc['base']: 0x80000000 | sc['vkey'] for sc in screens.values() if 'vkey' in sc}
-    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs) | set(marks))
+    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs) | set(rules) | set(marks))
     data = bytearray()
     offs = []
-    base_off = 12 + 8 * len(sigs) + 32 * len(rows)
+    base_off = 16 + 8 * len(sigs) + 32 * len(rows)
     for sg in sigs:
         if sg in marks:
             offs.append(marks[sg])
@@ -374,12 +399,28 @@ def pages(loaded):
         data += struct.pack('<I', len(ip)) + b''.join(struct.pack('<I', i << 16 | c) for i, c in ip)
         rg = sorted(regs.get(sg, {}).items())
         data += struct.pack('<I', len(rg)) + b''.join(struct.pack('<I', a << 16 | v) for a, v in rg)
-    out = bytearray(b'RHPG' + struct.pack('<II', len(sigs), len(rows)))
+        # row rules: { row mask | block << 16 | key entry << 24, key colour | entry mask << 16, the entries' colours
+        # (u16, an even count) }
+        rr = rules.get(sg, [])
+        data += struct.pack('<I', len(rr))
+        for blk, mask, key, kc, cols, emask in rr:
+            cols = list(cols) + [0] * (len(cols) & 1)
+            data += struct.pack('<II', mask | blk << 16 | key << 24, kc | emask << 16) + struct.pack('<%dH' % len(cols), *cols)
+    # the fuzzy list (src: tools/rh/amoled/sigpy.py fuzzy, rhtheme/ FuzzyFind): per learned screen its fingerprint
+    # (the shared one of a screen in versions), layer setup and map region hashes
+    # (one entry per learned screen state: the states of a family / a screen in versions all lead to the shared one)
+    fz = set()
+    for name, sc in screens.items():
+        if 'fuzzy' in sc:
+            fz.add((sc.get('base', sc['sig']),) + tuple(sc['fuzzy']))
+    fuzzy = b''.join(struct.pack('<II48H', *v) for v in sorted(fz))
+    out = bytearray(b'RHPG' + struct.pack('<III', len(sigs), len(rows), base_off + len(data)))
     for sg, off in zip(sigs, offs):
         out += struct.pack('<II', sg, off)
     for r, _ in sorted(rows.items(), key=lambda kv: kv[1]):
         out += struct.pack('<16H', *r)
     out += data
+    out += struct.pack('<I', len(fz)) + fuzzy
     open(PAGES_OUT, 'wb').write(out)
     print('%s: %d screens, %d rows, %d tile patches, %d palette index patches, %d one-colour rows not searched'
           % (PAGES_OUT, len(sigs), len(rows), sum(len(set(v)) for v in vpatch.values()),

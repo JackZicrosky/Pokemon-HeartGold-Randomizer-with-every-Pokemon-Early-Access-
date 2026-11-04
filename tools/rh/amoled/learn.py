@@ -48,10 +48,16 @@ MATCH = {}
 # screens whose tile maps the theme code itself repoints per button (src/rh_theme.c BattleMoves): no map patches,
 # and tile patches even where the owner coloured a shared tile pixel differently per button (type colours)
 NOMAP = {'72_battle_check_moves.png'}
+# screens whose sprites the game builds in VRAM (not a copy of ROM graphics) but keeps for the whole screen: their tile
+# pixels may be patched (the options menu's selected-value box: the owner's gradient on its one fill colour)
+RUNTIME_OK = {'35_options_menu.png'}
+# entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
+# (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
+NOSPARE = {(77, 3): {9, 11}, (7, 246): {2, 3, 4}}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp1', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press', '73_field_menu_pokemon_pressed.png': 'y_party_press', '64_battle_party.png': 'rf4_party', '65_battle_party_menu.png': 'rf4_party_menu'}
+FORCE = {'25_field_menu.png': 's25', '34_save_prompt.png': 's34', '61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press', '73_field_menu_pokemon_pressed.png': 'y_party_press', '64_battle_party.png': 'rf4_party', '65_battle_party_menu.png': 'rf4_party_menu'}
 # the owner's pictures, and screens the owner didn't draw made from the owner's design of a sibling screen
 # (synth/: e.g. the main menu's second page from its first, the same colour for the same Default colour)
 SYN = os.path.dirname(os.path.abspath(__file__)) + '/synth/'
@@ -74,7 +80,7 @@ for name, f in sorted(PA.items()):
         bn = 98304 - ImageChops.difference(d, defs[best]).convert('L').histogram()[0]
     # (a capture more than 20% different is another screen, not this one in another frame: its fingerprint would
     # carry the picture's colours to the wrong screen)
-    if best is None or bn > 98304 // 5 or not os.path.exists(CAPS + 'id_' + best + '.json'):
+    if best is None or (bn > 98304 // 5 and name not in FORCE) or not os.path.exists(CAPS + 'id_' + best + '.json'):
         continue
     MATCH[name] = best
     log = json.load(open(CAPS + 'id_' + best + '.json'))
@@ -136,6 +142,14 @@ for sc, cv in ctx_votes.items():
     screens[sc] = {'sig': sig, 'cols': {'%d,%d,%d@%d' % e: int(max(v.items(), key=lambda kv: kv[1])[0]) for e, v in cv.items()}}
     al = [json.load(open(CAPS + 'id_' + a + '.json')).get('sig') for a in ALIAS.get(sc, []) if os.path.exists(CAPS + 'id_' + a + '.json')]
     if al: screens[sc]['alias'] = [a for a in al if a is not None]
+    # (the parts the theme matches a screen with when its exact fingerprint has no page: sigpy.fuzzy)
+    import sigpy
+    for kind_ in ('vram2', 'vram'):
+        f_ = CAPS + 'id_' + MATCH[sc] + '.' + kind_
+        if os.path.exists(f_):
+            cfg_, regs_ = sigpy.fuzzy(open(f_, 'rb').read(), kind_)
+            screens[sc]['fuzzy'] = [cfg_] + regs_
+            break
 # tile patches: on a screen, pixels of one palette entry the owner gave a less common colour get a spare entry of the
 # same palette row (never shown on any captured screen) coloured that way; their tile data points there
 import dsrender
@@ -201,7 +215,7 @@ for sc, ents in pix.items():
             if key in spare and base is not None and (base | spare[key]) in shown_idx:
                 del spare[key]                        # (that spare is drawn by something else on this screen)
             if key not in spare:
-                free = [j for j in range(1, 16) if j not in taken[(sc, n, f, row)]
+                free = [j for j in range(1, 16) if j not in taken[(sc, n, f, row)] and j not in NOSPARE.get((n, f), ())
                         and (base | j) not in shown_idx] if base is not None else []
                 if free:
                     spare[key] = free[0]; taken[(sc, n, f, row)].add(free[0])
@@ -242,7 +256,7 @@ for sc, ents in pix.items():
                 # colour, e.g. mirrored halves of a picture, gets map patches per cell instead)
                 if sc not in NOMAP and tw and (len(tw) > 1 or tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31)):
                     nopatch['tile drawn elsewhere in another colour'] += 1; continue
-                if not static_tile(bid, r['vram']):
+                if not static_tile(bid, r['vram']) and not (sc in RUNTIME_OK and r['kind'] == 'obj'):
                     nopatch['runtime-drawn tile (text, numbers, sprites)'] += 1; continue
                 patches.add((r['vram'], r['half'], i % 16, j)); got += 1
                 spare_ip[sc][(r['idx'] & ~15) | j] = col          # the spare entry's colour, straight into palette RAM
@@ -452,7 +466,7 @@ for sc in screens:
                     e = clone_spare.get((row, w))
                     if e is None:
                         fr = [j for j in range(15, 0, -1) if (row | j) not in shown_idx_am and (row | j) not in clone_taken
-                              and (row | j) not in final_set]
+                              and (row | j) not in final_set and j not in NOSPARE.get(rowfile.get(row // 16), ())]
                         if not fr:
                             ok = False; break
                         e = fr[0]; clone_taken.add(row | e); clone_spare[(row, w)] = e; ip.append((row | e, w)); final[row | e] = w
@@ -539,6 +553,30 @@ for sig_, names in by_sig.items():
         screens[n_]['sig'] = ((sig_ ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
     ipstat['screen versions'] += 1
     print('screen versions', names, 'entry', key)
+# screen families: the owner's pictures of one screen in states with different tile maps (the bag's pockets: each with
+# its own items) are versions of one screen, told apart by an entry every state colours its own way (the pocket's
+# colour); with any other tile map (more items, another page) the theme finds the family by its map regions
+# (rhtheme/ FuzzyFind) and the version by that entry
+FAMILIES = [['44_bag_items.png', '45_bag_medicine.png', '46_bag_balls.png', '47_bag_tms.png', '48_bag_berries.png',
+             '49_bag_mail.png', '50_bag_battle_items.png', '51_bag_key_items.png']]
+for fam in FAMILIES:
+    fam = [n_ for n_ in fam if n_ in screens and os.path.exists(CAPS + 'am_' + MATCH[n_] + '.vram2')]
+    if len(fam) < 2:
+        continue
+    pals = {}
+    for n_ in fam:
+        vb = open(CAPS + 'am_' + MATCH[n_] + '.vram2', 'rb').read()
+        pals[n_] = [dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)]
+    key = next((i_ for i_ in range(1024) if len({pals[n_][i_] for n_ in fam}) == len(fam)), None)
+    if key is None:
+        ipstat['family: no entry tells them apart'] += 1; continue
+    fbase = screens[fam[0]].get('base', screens[fam[0]]['sig'])
+    for n_ in fam:
+        screens[n_]['base'] = fbase
+        screens[n_]['vkey'] = key
+        screens[n_]['sig'] = ((fbase ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
+    ipstat['screen families'] += 1
+    print('screen family', fam, 'entry', key)
 # colour links: pictures of one screen (one fingerprint) that want an entry in different colours (the bag's pockets:
 # each pocket's colour) get it linked to the entry that holds that colour in each of them (the pocket's own palette
 # row, loaded by the game): the theme copies that entry's colour every frame (src/rh_theme.c IdxWant)
@@ -569,6 +607,51 @@ for sig_, names in by_sig.items():
         for n_ in names:
             screens[n_].setdefault('link', []).append((i_, src))
         ipstat['colour links'] += 1
+# row rules: buttons with a palette row each, the selected one told apart by the game's colours (the field menu's
+# cursor: the selected button's row gets red entries). The owner's picture has the unselected rows recoloured alike and
+# the selected one as the game shows it: those index patches become a rule for every row of the group (the selected
+# row and its siblings): a row whose key entry has the colour the unselected rows had gets the owner's colours, the
+# others keep the game's (src: rhtheme/ RowRules). Else the colours would stay on the rows of the picture's state
+for sc_, sc in screens.items():
+    ip = sc.get('ipatch', [])
+    f_ = CAPS + 'am_' + MATCH[sc_] + '.vram2'
+    if not ip or not os.path.exists(f_):
+        continue
+    vb = open(f_, 'rb').read()
+    pal = [dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)]
+    rows = collections.defaultdict(dict)
+    for i_, c_ in ip:
+        rows[i_ // 16][i_ % 16] = c_
+    groups = collections.defaultdict(list)
+    for r_, d_ in rows.items():
+        groups[(r_ // 16, tuple(sorted(d_.items())))].append(r_)
+    rules = []
+    for (blk, items), grp in groups.items():
+        if len(grp) < 2:
+            continue
+        ents = [e for e, _ in items]
+        # the group's rows as the game shows them must be alike
+        ref = pal[grp[0] * 16:grp[0] * 16 + 16]
+        if any(pal[r_ * 16:r_ * 16 + 16] != ref for r_ in grp):
+            continue
+        # siblings: other rows of the block like them except at 1-2 entries (the selection's)
+        sib = [r_ for r_ in range(blk * 16, blk * 16 + 16) if r_ not in grp and r_ not in rows
+               and 1 <= sum(pal[r_ * 16 + j] != ref[j] for j in range(16)) <= 2]
+        if not sib:
+            continue
+        key = next((j for j in ents if all(pal[r_ * 16 + j] != ref[j] for r_ in sib)), None)
+        if key is None:
+            continue
+        mask = 0
+        for r_ in grp + sib:
+            mask |= 1 << (r_ - blk * 16)
+        rules.append((blk, mask, key, ref[key], [c for _, c in items], sum(1 << e for e in ents)))
+        drop = {r_ * 16 + e for r_ in grp for e in ents}
+        sc['ipatch'] = [(i_, c_) for i_, c_ in sc['ipatch'] if i_ not in drop]
+        ipstat['row rules'] += 1
+        print('row rule', sc_, 'block', blk, 'rows', sorted(grp + sib), 'key entry', key)
+    if rules:
+        sc['rules'] = rules
 print('palette index patches:', dict(ipstat))
 json.dump(screens, open('screens.json', 'w'))
 # entries whose text pixels the owner coloured differently from other pixels: every screen (file level) gets the text's
