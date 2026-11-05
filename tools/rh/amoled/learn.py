@@ -553,12 +553,15 @@ for sig_, names in by_sig.items():
         screens[n_]['sig'] = ((sig_ ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
     ipstat['screen versions'] += 1
     print('screen versions', names, 'entry', key)
+    for n_ in names:                            # (the telling entry is the game's: never patched)
+        screens[n_]['ipatch'] = [(i_, c_) for i_, c_ in screens[n_].get('ipatch', []) if i_ != key]
 # screen families: the owner's pictures of one screen in states with different tile maps (the bag's pockets: each with
 # its own items) are versions of one screen, told apart by an entry every state colours its own way (the pocket's
 # colour); with any other tile map (more items, another page) the theme finds the family by its map regions
 # (rhtheme/ FuzzyFind) and the version by that entry
 FAMILIES = [['44_bag_items.png', '45_bag_medicine.png', '46_bag_balls.png', '47_bag_tms.png', '48_bag_berries.png',
              '49_bag_mail.png', '50_bag_battle_items.png', '51_bag_key_items.png']]
+FAMILY_REF = {'44_bag_items.png': '51_bag_key_items.png'}
 for fam in FAMILIES:
     fam = [n_ for n_ in fam if n_ in screens and os.path.exists(CAPS + 'am_' + MATCH[n_] + '.vram2')]
     if len(fam) < 2:
@@ -572,11 +575,44 @@ for fam in FAMILIES:
         ipstat['family: no entry tells them apart'] += 1; continue
     fbase = screens[fam[0]].get('base', screens[fam[0]]['sig'])
     for n_ in fam:
+        # (its own fingerprint too: the exact state of the owner's picture gets its whole page, tile patches and all)
+        screens[n_]['exact'] = json.load(open(CAPS + 'id_' + MATCH[n_] + '.json')).get('sig')
         screens[n_]['base'] = fbase
         screens[n_]['vkey'] = key
         screens[n_]['sig'] = ((fbase ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
     ipstat['screen families'] += 1
     print('screen family', fam, 'entry', key)
+    # (the entry telling the states apart is the game's: never patched, a page would hold its own state's colour there)
+    for n_ in fam:
+        screens[n_]['ipatch'] = [(i_, c_) for i_, c_ in screens[n_].get('ipatch', []) if i_ != key]
+    # (owner, 2026-11-04: every pocket's items look like the Key Items picture's, where the owner drew items: the
+    # pocket row's index patches of that member for all, but each pocket's own colour, entry 5)
+    ref = FAMILY_REF.get(fam[0])
+    if ref in screens:
+        own_ = (517, 526, key)                 # (each pocket's own colours, and the entry telling them apart)
+        rip = {i_: c_ for i_, c_ in screens[ref].get('ipatch', []) if 512 <= i_ < 528 and i_ not in own_}
+        for n_ in fam:
+            if n_ == ref:
+                continue
+            ip_ = [(i_, c_) for i_, c_ in screens[n_].get('ipatch', []) if not (512 <= i_ < 528 and i_ not in own_)]
+            screens[n_]['ipatch'] = ip_ + sorted(rip.items())
+    # (an index patch the members want differently: the colour of the members that show it most - the item text of
+    # the pockets the owner drew with items, white / grey shadow, for every pocket, also the ones drawn empty)
+    want_ = collections.defaultdict(collections.Counter)
+    for n_ in fam:
+        for i_, c_ in screens[n_].get('ipatch', []):
+            want_[i_][c_] += 1
+    full = [n_ for n_ in fam if len(screens[n_].get('ipatch', [])) == max(len(screens[m_].get('ipatch', [])) for m_ in fam)]
+    for i_, cn in want_.items():
+        if len(cn) < 2:
+            continue
+        cs = [c_ for n_ in fam for j_, c_ in screens[n_].get('ipatch', []) if j_ == i_ and len(dict(screens[n_]['ipatch'])) >= len(dict(screens[full[0]]['ipatch'])) - 8]
+        if not cs or len(set(cs)) > 1:
+            continue                          # (pockets with items disagree: each pocket's own colour)
+        top = cs[0]
+        for n_ in fam:
+            screens[n_]['ipatch'] = [(j_, top if j_ == i_ else c_) for j_, c_ in screens[n_].get('ipatch', [])]
+        ipstat['family: entry unified'] += 1
 # colour links: pictures of one screen (one fingerprint) that want an entry in different colours (the bag's pockets:
 # each pocket's colour) get it linked to the entry that holds that colour in each of them (the pocket's own palette
 # row, loaded by the game): the theme copies that entry's colour every frame (src/rh_theme.c IdxWant)
@@ -652,6 +688,50 @@ for sc_, sc in screens.items():
         print('row rule', sc_, 'block', blk, 'rows', sorted(grp + sib), 'key entry', key)
     if rules:
         sc['rules'] = rules
+# sprite copies (rhtheme/ ObjCopies): sprites drawn with the same tiles twice, flipped, the owner coloured differently
+# - the bag's selected-item frame (sub OBJ palette 9, entry 12): its bottom half (vertically flipped sprites) in the
+#   owner's darker pocket colour. Copies at free tiles 480+ (empty in every bag state captured), entry 12 -> spare 14
+OBJ_COPIES = {n_: (1, 9, 1, 12, 14, 480) for n_ in ['44_bag_items.png', '45_bag_medicine.png', '46_bag_balls.png',
+              '47_bag_tms.png', '48_bag_berries.png', '49_bag_mail.png', '50_bag_battle_items.png', '51_bag_key_items.png']}
+_SZ = {(0, 0): (8, 8), (0, 1): (16, 16), (0, 2): (32, 32), (0, 3): (64, 64), (1, 0): (16, 8), (1, 1): (32, 8), (1, 2): (32, 16),
+       (1, 3): (64, 32), (2, 0): (8, 16), (2, 1): (8, 32), (2, 2): (16, 32), (2, 3): (32, 64)}
+for sc_, (eng_, pal_, vf_, frm_, to_, dst_) in OBJ_COPIES.items():
+    if sc_ not in screens:
+        continue
+    f_ = CAPS + 'am_' + MATCH[sc_] + '.vram2'
+    vb = open(f_, 'rb').read()
+    oam_ = vb[dsrender.O_OAM + 0x400 * eng_:dsrender.O_OAM + 0x400 * eng_ + 0x400]
+    starts, flipped = {}, set()
+    for k_ in range(128):
+        a0, a1, a2 = (int.from_bytes(oam_[k_ * 8 + 2 * w_:k_ * 8 + 2 * w_ + 2], 'little') for w_ in range(3))
+        if (a0 & 0x300) == 0x200 or a2 >> 12 != pal_ or (a1 >> 13 & 1) != vf_:
+            continue
+        w_, h_ = _SZ[(a0 >> 14, a1 >> 14)]
+        starts[a2 & 1023] = w_ * h_ // 64
+        flipped.add(k_)
+    # the owner's colour on those sprites' pixels of the entry
+    shot_ = Image.open(CAPS + 'am_' + MATCH[sc_] + '.png').convert('RGB')
+    scr_, fit_ = dsrender.screens(vb, shot_)
+    o_ = Image.open(PA[sc_]).convert('RGB')
+    cn = collections.Counter()
+    half = 1                                   # (the bag: the sub engine is the bottom screen)
+    base_ = (768 if eng_ else 256) + pal_ * 16
+    for y_ in range(192):
+        for x_ in range(256):
+            q = scr_[half][y_][x_]
+            if q and q['kind'] == 'obj' and q.get('oam') in flipped and q['idx'] == base_ + frm_:
+                cn[own5(o_.getpixel((x_, 192 + y_)))] += 1
+    if not cn or not starts:
+        continue
+    col_ = cn.most_common(1)[0][0]
+    cps, d_ = [], dst_
+    for st, cnt_ in sorted(starts.items()):
+        cps.append((eng_ | pal_ << 4 | vf_ << 8 | st << 16, d_ | cnt_ << 16 | frm_ << 24 | to_ << 28))
+        d_ += cnt_
+    screens[sc_]['objcopy'] = cps
+    screens[sc_]['ipatch'] = [(i_, c_) for i_, c_ in screens[sc_].get('ipatch', []) if i_ != base_ + to_] + [(base_ + to_, col_)]
+    ipstat['sprite copies'] += len(cps)
+    print('sprite copies', sc_, [(hex(a), hex(b)) for a, b in cps], 'colour', (col_ & 31, col_ >> 5 & 31, col_ >> 10 & 31))
 print('palette index patches:', dict(ipstat))
 json.dump(screens, open('screens.json', 'w'))
 # entries whose text pixels the owner coloured differently from other pixels: every screen (file level) gets the text's

@@ -43,6 +43,11 @@ RULES = {(77, 3, r * 16 + 11): 0 for r in (0, 1, 8, 9, 10, 11)}
 #   black, picture 67) through 18-20 to the normal fill (21, the owner's (4,4,4)): the steps between, (1..3 grey) the
 #   same way (they flashed pink and red); BAG's first step (34) likewise
 RULES.update({(7, 246, 18): 0x0421, (7, 246, 19): 0x0842, (7, 246, 20): 0x0C63, (7, 246, 34): 0x0421})
+# rows that copy another row of their file (owner, 2026-11-04: "every item should be coloured like the HM Kit regardless
+# of pocket"): the bag's item slots (narc 15 file 41, one row per pocket, rows 0-7 and 8-15) all take the Key Items row's
+# colours (7 / 15, the pocket the owner drew with items), except each pocket's own: entries 3 and 5 (3: the colour the
+# theme tells the pockets apart by, tools/rh/amoled/learn.py FAMILIES) and 14
+ROWCOPY = {(15, 41): ({r: 7 for r in range(7)} | {r: 15 for r in range(8, 15)}, {3, 5, 14})}
 SKIN_FILES = [(143, 30), (143, 24), (143, 0), (144, 20), (144, 14), (145, 4), (146, 10), (146, 4)]   # Pokegear skin 1 files
 NEAR = 3            # max channel distance for "nearest recoloured colour"
 CONSISTENT = 0.75
@@ -249,6 +254,12 @@ def main():
         for i in range(len(new)):
             if (n, f, i) in RULES:
                 new[i] = RULES[(n, f, i)] | (c[i] & 0x8000)
+        if (n, f) in ROWCOPY:
+            rows_, keep_ = ROWCOPY[(n, f)]
+            for r, src in rows_.items():
+                for j in range(16):
+                    if j not in keep_ and src * 16 + j < len(new) and r * 16 + j < len(new):
+                        new[r * 16 + j] = new[src * 16 + j]
         # every palette file outside the art archives (the colour-id mode uses the list too), and art files the owner
         # changed
         if (n not in ART and n < 320) or new != c:
@@ -312,6 +323,12 @@ def pages(loaded):
             for i, c in cols.items():
                 if i < len(t) and (n, f, i) not in RULES:
                     t[i] = c | (t[i] & 0x8000)
+            if (n, f) in ROWCOPY:
+                rows_, keep_ = ROWCOPY[(n, f)]
+                for r, src in rows_.items():
+                    for j in range(16):
+                        if j not in keep_ and r * 16 + j < len(t):
+                            t[r * 16 + j] = t[src * 16 + j]
             targets[name] = t
         for r in range(len(base) // 16):
             vers = {tuple(base[16 * r:16 * r + 16])} | {tuple(t[16 * r:16 * r + 16]) for t in targets.values()}
@@ -364,9 +381,12 @@ def pages(loaded):
         for a, v in sc.get('regs', []):
             regs[sc['sig']][a] = v
     rules = {}                                 # fingerprint -> row rules (tools/rh/amoled/learn.py, rhtheme/ RowRules)
+    objc = {}                                  # fingerprint -> sprite copies (learn.py OBJ_COPIES, rhtheme/ ObjCopies)
     for name, sc in screens.items():
         if sc.get('rules'):
             rules[sc['sig']] = sc['rules']
+        if sc.get('objcopy'):
+            objc[sc['sig']] = sc['objcopy']
     # the same screen in another state (e.g. a Pokemon with 4 moves: another tile map, so another fingerprint; the
     # same tile graphics) gets the palette versions, tile and register patches of the owner's picture. Not its index
     # patches: they set palette entries the other state uses for something else (4th move button)
@@ -378,10 +398,24 @@ def pages(loaded):
                 regs[a] = dict(regs.get(sc['sig'], {}))
                 if sc['sig'] in rules:
                     rules[a] = rules[sc['sig']]
+    # a family member's own fingerprint (tools/rh/amoled/learn.py FAMILIES): the owner's exact state, its whole page
+    exacts = collections.Counter(sc.get('exact') for sc in screens.values())
+    for name, sc in screens.items():
+        ex = sc.get('exact')
+        # (a fingerprint states of two pictures share - the bag's TMs and Mail with no items: the version decides)
+        if ex is not None and ex != sc['sig'] and exacts[ex] == 1 and ex not in {s_.get('base') for s_ in screens.values()}:
+            per_sig[ex] = dict(per_sig.get(sc['sig'], {}))
+            vpatch[ex] = list(vpatch.get(sc['sig'], []))
+            ipatch[ex] = dict(ipatch.get(sc['sig'], {}))
+            regs[ex] = dict(regs.get(sc['sig'], {}))
+            if sc['sig'] in rules:
+                rules[ex] = rules[sc['sig']]
+            if sc['sig'] in objc:
+                objc[ex] = objc[sc['sig']]
     # screens in versions (tools/rh/amoled/learn.py): the shared fingerprint points at the palette entry that tells
     # them apart (bit 31), each version's page is under its own fingerprint
     marks = {sc['base']: 0x80000000 | sc['vkey'] for sc in screens.values() if 'vkey' in sc}
-    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs) | set(rules) | set(marks))
+    sigs = sorted(set(per_sig) | set(vpatch) | set(ipatch) | set(regs) | set(rules) | set(objc) | set(marks))
     data = bytearray()
     offs = []
     base_off = 16 + 8 * len(sigs) + 32 * len(rows)
@@ -406,6 +440,8 @@ def pages(loaded):
         for blk, mask, key, kc, cols, emask in rr:
             cols = list(cols) + [0] * (len(cols) & 1)
             data += struct.pack('<II', mask | blk << 16 | key << 24, kc | emask << 16) + struct.pack('<%dH' % len(cols), *cols)
+        oc = objc.get(sg, [])
+        data += struct.pack('<I', len(oc)) + b''.join(struct.pack('<II', a, b) for a, b in oc)
     # the fuzzy list (src: tools/rh/amoled/sigpy.py fuzzy, rhtheme/ FuzzyFind): per learned screen its fingerprint
     # (the shared one of a screen in versions), layer setup and map region hashes
     # (one entry per learned screen state: the states of a family / a screen in versions all lead to the shared one)

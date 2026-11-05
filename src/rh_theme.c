@@ -196,7 +196,11 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
     }
 #endif
     if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
+    {
         ((void (*)(void))hp[part])();
+        if (part == 4)                 // (a copy of only some sprites may have overwritten an overlay: put it back)
+            ((void (*)(void))hp[3])();
+    }
     if (sBlob != NULL && RHCT_UiTheme() == RH_THEME_AMOLED)
         sBlob->oam(offset, size);
 }

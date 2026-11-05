@@ -556,8 +556,8 @@ static u32 *PgFile(void)
 
 // A screen whose exact fingerprint has no page (the owner's screen in another state: a 4th move, more items in the
 // bag, another Pokemon...): the learned screen with the same layer setup whose map regions match best (at least 3 of
-// 4 of the regions either shows something in, and no other as good). Its page then goes on, without its tile patches
-// (made for that state's graphics). The list (tools/rh/gen_rh_amoled.py): { u32 count, count x { u32 fingerprint,
+// 4 of the regions either shows something in, and no other as good). Its page then goes on, tile patches too (they
+// are on the screen's ROM graphics only, at the same place in every state of it, and check each pixel first). The list (tools/rh/gen_rh_amoled.py): { u32 count, count x { u32 fingerprint,
 // u32 layer setup, u16 regions[48] } }, read once.
 #define FZ_EMPTY 0x9070            // a region without tiles
 #define FZ_SIZE  (8 + 96)
@@ -646,7 +646,10 @@ static void RowRules(BOOL undo)
     }
 }
 
-static BOOL sFuzzyShown, sFuzzyNext;    // the shown (next) page was found by FuzzyFind: no tile patches
+static BOOL sFuzzyShown, sFuzzyNext;    // the shown (next) page was found by FuzzyFind
+struct ObjCopy { u32 w[2], mine; };   // (ObjCopies, below; mine: the copy's place was found empty, it is the theme's)
+static struct ObjCopy *sObjCopies;
+static u32 sObjCopyCount;
 static void ShowScreen(u32 sig)
 {
     u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
@@ -664,7 +667,7 @@ static void ShowScreen(u32 sig)
     // its tile patches: after the pairs
     FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
     n = 0;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192 && !sFuzzyShown)
+    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
     {
         sPatch = SafeAlloc(n * 6);
         if (sPatch != NULL)
@@ -712,9 +715,13 @@ static void ShowScreen(u32 sig)
             sRegCount = n;
         }
     }
-    // its row rules: after the register patches
+    // its row rules: after the register patches; then its sprite copies (read in order: the rules' size varies)
     FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 4 && (sRules = SafeAlloc(n * sizeof(struct RowRule))) != NULL)
+    i = FS_ReadFile(file, &n, 4) == 4 && n <= 4;
+    if (i && n != 0 && (sRules = SafeAlloc(n * sizeof(struct RowRule))) == NULL)
+        i = FALSE;
+    pair[0] = i;                       // (the file is at the sprite copies)
+    if (i && n != 0)
     {
         for (i = 0; i < n; i++)
         {
@@ -728,6 +735,16 @@ static void ShowScreen(u32 sig)
                 r->save[k] = 0;
         }
         sRuleCount = n;
+    }
+    if (pair[0] && FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8
+        && (sObjCopies = SafeAlloc(n * sizeof(struct ObjCopy))) != NULL)
+    {
+        for (i = 0; i < n; i++)
+        {
+            FS_ReadFile(file, sObjCopies[i].w, 8);
+            sObjCopies[i].mine = 0;
+        }
+        sObjCopyCount = n;
     }
     // its row versions last (many reads: the index patches above are in palette RAM before the vertical blank ends,
     // a new screen has the owner's colours from its first frame), then the index patches again on top of them
@@ -763,9 +780,9 @@ static void RegTask(void *task, void *data)
 {
     u32 i;
     (void)task; (void)data;
-    RowRules(FALSE);                            // (a selection the game moved: right away)
-    for (i = 0; i < sRegCount; i++)
+    for (i = 0; i < sRegCount; i++)             // (first: early in the vertical blank)
         *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
+    RowRules(FALSE);                            // (a selection the game moved: right away)
     // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
     // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
     // faded buffer: fades go on, also the ones of a single row, e.g. a blinking icon). What the game loaded is what
@@ -862,6 +879,21 @@ static void ThemeTask(void *task, void *data)
             Heap_Free(sRegs);
             sRegs = NULL;
         }
+        if (sObjCopies != NULL)
+        {
+            for (i = 0; i < sObjCopyCount; i++) // (the copies' places empty again: the next screen's may be there)
+                if (sObjCopies[i].mine)
+                {
+                    u32 w1 = sObjCopies[i].w[1], eng = sObjCopies[i].w[0] & 1, k;
+                    u32 sh = 5 + (*(vu32 *)(eng ? 0x04001000 : 0x04000000) >> 20 & 3);
+                    vu32 *vd = (vu32 *)((eng ? 0x06600000 : 0x06400000) + ((w1 & 1023) << sh));
+                    for (k = 0; k < (w1 >> 16 & 255) * 8; k++)
+                        vd[k] = 0;
+                }
+            sObjCopyCount = 0;                  // (first: the OAM hook may run in between)
+            Heap_Free(sObjCopies);
+            sObjCopies = NULL;
+        }
         if (sRules != NULL)
         {
             RowRules(TRUE);
@@ -896,6 +928,10 @@ static void ThemeTask(void *task, void *data)
         }
     }
     RowRules(FALSE);
+    // the register patches after the game's main loop too (it may set its registers there, after RegTask's vertical
+    // blank: the field menu's dimming blend came back every other frame)
+    for (i = 0; i < sRegCount; i++)
+        *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
     {
         const u32 *hp = (const u32 *)0x023C4000;    // the battle overlay's parts (src/battle/rh_hptext.c)
         // (the register patches: RegTask, every vertical blank)
@@ -942,10 +978,54 @@ static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
     ThemeCodeColours();
 }
 
+// Sprite copies (tools/rh/amoled/learn.py OBJ_COPIES): sprites drawn with the same tiles twice, flipped, that the owner
+// coloured differently (the bag's selected-item frame: its bottom half is its top half upside down, the owner's bottom
+// edge darker). The flipped sprites are pointed at a copy of their tiles in free OBJ VRAM (written only where those
+// tiles are empty or the copy), with one entry moved to a spare one. Each: { w0 = engine | palette << 4 | vflip << 8 |
+// first tile << 16, w1 = copy's first tile | tile count << 16 | entry << 24 | spare entry << 28 }.
+static void ObjCopies(void)
+{
+    u32 n, k, i;
+    for (n = 0; n < sObjCopyCount; n++)
+    {
+        u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1;
+        u32 src = w0 >> 16 & 1023, dst = w1 & 1023, cnt = w1 >> 16 & 255, from = w1 >> 24 & 15, to = w1 >> 28 & 15;
+        u32 sh = 5 + (*(vu32 *)(eng ? 0x04001000 : 0x04000000) >> 20 & 3);
+        vu32 *vs = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (src << sh)), *vd = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (dst << sh));
+        vu16 *oam = (vu16 *)(eng ? 0x07000400 : 0x07000000);
+        BOOL ok = TRUE;
+        if (!sObjCopies[n].mine)                       // (the copy's place: empty, else the game uses it)
+            for (i = 0; i < cnt * 8 && ok; i++)
+                ok = vd[i] == 0;
+        if (!ok)
+            continue;
+        sObjCopies[n].mine = 1;
+        for (i = 0; i < cnt * 8; i++)                  // (again every time: the game animates the tiles)
+        {
+            u32 w = vs[i], m = 0, q;
+            for (q = 0; q < 8; q++)
+                if ((w >> (q * 4) & 15) == from)
+                    m |= 15u << (q * 4);
+            w = (w & ~m) | ((to * 0x11111111u) & m);
+            if (vd[i] != w)
+                vd[i] = w;
+        }
+        for (k = 0; k < 128; k++, oam += 4)
+            if ((oam[0] & 0x300) != 0x200 && (oam[2] & 1023) == src && (oam[2] >> 12) == pal && (oam[1] >> 13 & 1) == vf)
+                oam[2] = (u16)((oam[2] & ~1023u) | dst);
+    }
+}
+
 // after the game copied sprites to OAM
 static void ThemeOam(u32 offset, u32 size)
 {
+    u32 i;
     (void)offset; (void)size;
+    ObjCopies();
+    // the register patches here too: the game's vertical-blank callback (which copies the sprites) may set its
+    // registers after RegTask ran (the field menu's dimming blend came back every other frame)
+    for (i = 0; i < sRegCount; i++)
+        *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
 }
 
 // what the resident part calls (the first thing in data/rh_theme.bin: rhtheme/linker.ld)

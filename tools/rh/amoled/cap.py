@@ -412,6 +412,27 @@ for k in sys.argv[3:]:
             if all(v_ < 0x400000 for v_ in v): got = v; break
             j = ram.find(b'RHH0', j + 1)
         print('heap0', got)
+    elif k.startswith('regs:'):                   # regs:N  N frames: the sub engine's blend registers as written
+        for _ in range(int(k[5:])):
+            r = io_regs()
+            print('regs', ' '.join('%04x' % int.from_bytes(r[0x70 + o:0x72 + o], 'little') for o in (0x0, 0x48, 0x4A, 0x50, 0x52, 0x54)))
+            h.run(1)
+    elif k.startswith('oam:'):                    # oam:N  N frames: main OAM entries using the top 16 KB of OBJ VRAM (overlays)
+        for _ in range(int(k[4:])):
+            o = bytes(h.emu.memory.read(0x07000000, 0x070003FF, 1, False))
+            sh = 5 + (h.emu.memory.unsigned.read_long(0x04000000) >> 20 & 3)
+            ent = []
+            for q in range(128):
+                a0, a1, a2 = (int.from_bytes(o[q * 8 + 2 * w:q * 8 + 2 * w + 2], 'little') for w in range(3))
+                if (a0 & 0x300) != 0x200 and ((a2 & 1023) << sh) >= 0x10000 - 8 * 0x800 and a1 >> 14 == 3:
+                    ent.append((q, a0 & 255, a1 & 511, a2 >> 12))
+            boxes = []
+            for q in range(128):
+                a0, a1, a2 = (int.from_bytes(o[q * 8 + 2 * w:q * 8 + 2 * w + 2], 'little') for w in range(3))
+                if (a0 & 0x300) != 0x200 and a0 >> 14 == 0 and a1 >> 14 == 3 and ((a2 & 1023) << sh) < 0x10000 - 8 * 0x800:
+                    boxes.append((q, a0 & 255, a1 & 511))
+            print('oam ovl', ent, 'boxes', boxes)
+            h.run(1)
     elif k == 'sigdbg':
         j = sig_addr()
         print('sigdbg', [h.emu.memory.unsigned.read_long(j + 4 * i) for i in range(1, 5)] if j else None)
