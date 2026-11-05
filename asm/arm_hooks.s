@@ -32,3 +32,17 @@ ldr ip, =RH_LoadOamCopy
 bx ip
 
 .pool
+
+.global RH_LoadOamSub_arm
+RH_LoadOamSub_arm:
+ldr ip, =RH_LoadOamSub
+bx ip
+
+.pool
+
+.global RH_LoadOamCopySub_arm
+RH_LoadOamCopySub_arm:
+ldr ip, =RH_LoadOamCopySub
+bx ip
+
+.pool

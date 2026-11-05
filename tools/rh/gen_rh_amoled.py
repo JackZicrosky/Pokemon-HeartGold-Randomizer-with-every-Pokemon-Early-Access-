@@ -38,7 +38,7 @@ KEEP = {(21, 16, 55), (21, 16, 71), (21, 16, 87), (21, 16, 103)}
 # entries set by the owner's rules for states the pictures don't show (every screen version too):
 # - battle bag item buttons (narc 77 file 3, entry 11 of each pocket colour's row): the pressed fill, black like the
 #   pressed pocket of the owner's picture 69 (the game's cream press flashed white, owner 2026-11-04)
-RULES = {(77, 3, r * 16 + 11): 0 for r in (0, 1, 8, 9, 10, 11)}
+RULES = {(77, 3, r * 16 + 11): 0 for r in (0, 1, 6, 8, 9, 10, 11)}
 # - battle command buttons (narc 7 file 246): pressing FIGHT steps its fill from the pressed white (entry 17, the owner's
 #   black, picture 67) through 18-20 to the normal fill (21, the owner's (4,4,4)): the steps between, (1..3 grey) the
 #   same way (they flashed pink and red); BAG's first step (34) likewise

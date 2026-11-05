@@ -195,7 +195,7 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
         }
     }
 #endif
-    if (RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
+    if (part != 0 && RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
     {
         // (a copy of only some sprites may have overwritten an overlay: RH_HpSync says so, then they go back in)
         if (((u32 (*)(void))hp[part])() && part == 4)
@@ -208,6 +208,18 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
 void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)
 {
     LoadOam(src, offset, size, 4);     // (only the overlays' positions: see src/battle/rh_hptext.c RH_HpSync)
+}
+
+// GXS_LoadOAM (arm9 0x020CFE1C): the sub screen's sprites (no HP-box overlays there: part 0)
+void RH_LoadOamSub(const u32 *src, u32 offset, u32 size)
+{
+    LoadOam(src, 0x400 + offset, size, 0);
+}
+
+// the sprite library's sub-screen OAM loader (arm9 0x020B78B0, through a pointer table)
+void RH_LoadOamCopySub(const u32 *src, u32 offset, u32 size)
+{
+    LoadOam(src, 0x400 + offset, size, 0);
 }
 
 void RH_LoadOamMain(const u32 *src, u32 offset, u32 size)

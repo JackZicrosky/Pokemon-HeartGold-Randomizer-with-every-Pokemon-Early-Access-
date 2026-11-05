@@ -669,6 +669,8 @@ struct ObjCopy { u32 w[2], mine; };   // (ObjCopies, below; mine: the copy's pla
 static struct ObjCopy *sObjCopies;
 static u32 sObjCopyCount;
 static void ObjCopyTiles(void);
+static void ObjCopies(u32 offset, u32 size);
+static u32 sFrame, sObjDone;       // (vertical blanks counted by RegTask; the frame ObjCopies last ran in)
 static void ShowScreen(u32 sig)
 {
     u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
@@ -803,6 +805,8 @@ static void RegTask(void *task, void *data)
         *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
     RowRules(FALSE);                            // (a selection the game moved: right away)
     ObjCopyTiles();
+    ObjCopies(0xFFFFFFFF, 0);                   // (the sub screen's sprites: their copy doesn't come through the hook)
+    sFrame++;
     // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
     // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
     // faded buffer: fades go on, also the ones of a single row, e.g. a blinking icon). What the game loaded is what
@@ -859,8 +863,8 @@ static void ThemeTask(void *task, void *data)
         sLastBase = sig;
         sig = v;
     }
-    if (sig != sLastSig || sFuzzyNext != sFuzzyShown)     // (a page found by FuzzyFind, then by its fingerprint:
-    {                                                     // again, with its tile patches)
+    if (sig != sLastSig)               // (the same page found by fingerprint or by FuzzyFind: kept, no undo/redo blip)
+    {
         sLastSig = sig;
         if (sPatch != NULL)
         {
@@ -1002,7 +1006,10 @@ static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
 // coloured differently (the bag's selected-item frame: its bottom half is its top half upside down, the owner's bottom
 // edge darker). The flipped sprites are pointed at a copy of their tiles in free OBJ VRAM (written only where those
 // tiles are empty or the copy), with one entry moved to a spare one. Each: { w0 = engine | palette << 4 | vflip << 8 |
-// first tile << 16, w1 = copy's first tile | tile count << 16 | entry << 24 | spare entry << 28 }.
+// first tile << 16, w1 = copy's first tile | tile count << 16 | entry << 24 | spare entry << 28 }. Tile count 0: a
+// palette move instead (sprites sharing a row's entries with others the owner coloured otherwise: the sprite of that
+// first tile (and x, w1 bits 4-13: 1 + x, 0 any) goes to palette row w1 & 15, a copy of its row with the owner's
+// colours, set by index patches).
 // tiles: once per frame (RegTask: the game also copies single sprites, many times a frame); sprites: after every copy
 // of the game's sprites
 static void ObjCopyTiles(void)
@@ -1011,6 +1018,11 @@ static void ObjCopyTiles(void)
     for (n = 0; n < sObjCopyCount; n++)
     {
         u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1;
+        if ((w1 >> 16 & 255) == 0)                     // (a palette move: no tiles to copy)
+        {
+            sObjCopies[n].mine = 1;
+            continue;
+        }
         u32 src = w0 >> 16 & 1023, dst = w1 & 1023, cnt = w1 >> 16 & 255, from = w1 >> 24 & 15, to = w1 >> 28 & 15;
         u32 sh = 5 + (*(vu32 *)(eng ? 0x04001000 : 0x04000000) >> 20 & 3);
         vu32 *vs = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (src << sh)), *vd = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (dst << sh));
@@ -1037,6 +1049,21 @@ static void ObjCopyTiles(void)
 static void ObjCopies(u32 offset, u32 size)
 {
     u32 n, k;
+    // (at most 16 times a frame: the overworld copies sprites hundreds of times a frame, the Mart lagged; the screen's
+    // own sprite copies come in between, so not just once)
+    static u32 sCalls;
+    if (sObjCopyCount == 0)
+        return;
+    if (sObjDone != sFrame)
+    {
+        sObjDone = sFrame;
+        sCalls = 0;
+    }
+    // (offset 0xFFFFFFFF: RegTask, every vertical blank; 0x400+: the sub screen's own copy, GXS_LoadOAM: always)
+    if (offset < 0x400 && sCalls++ >= 16)
+        return;
+    if (offset != 0xFFFFFFFF)
+        ObjCopyTiles();                // (the game animates the tiles: the copy follows at once)
     for (n = 0; n < sObjCopyCount; n++)
     {
         u32 w0 = sObjCopies[n].w[0], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1, src = w0 >> 16 & 1023;
@@ -1045,6 +1072,18 @@ static void ObjCopies(u32 offset, u32 size)
         (void)offset; (void)size;        // (the whole engine's OAM: the sub screen's copies don't come through here)
         if (!sObjCopies[n].mine)
             continue;
+        if ((sObjCopies[n].w[1] >> 16 & 255) == 0)     // (a palette move: the sprite of that tile to palette dst)
+        {
+            u32 x1 = sObjCopies[n].w[1] >> 4 & 1023;   // (1 + the sprite's x, 0: any: sprites sharing tiles)
+            for (k = lo; k < hi; k++)
+            {
+                vu16 *e = oam + k * 4;
+                if ((e[0] & 0x300) != 0x200 && (e[2] & 1023) == src && (e[2] >> 12) == pal
+                    && (x1 == 0 || (e[1] & 511) + 1 == x1))
+                    e[2] = (u16)((e[2] & 0x0FFF) | (dst & 15) << 12);
+            }
+            continue;
+        }
         for (k = lo; k < hi; k++)
         {
             vu16 *e = oam + k * 4;

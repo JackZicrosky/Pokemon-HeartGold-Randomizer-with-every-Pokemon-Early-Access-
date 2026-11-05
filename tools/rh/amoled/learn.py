@@ -51,6 +51,9 @@ NOMAP = {'72_battle_check_moves.png'}
 # screens whose sprites the game builds in VRAM (not a copy of ROM graphics) but keeps for the whole screen: their tile
 # pixels may be patched (the options menu's selected-value box: the owner's gradient on its one fill colour)
 RUNTIME_OK = {'35_options_menu.png'}
+# screens caught mid-animation (a button press): the game draws the animation into tiles that look free in the
+# capture, so no tile copies there (they showed through the press animation in green)
+NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
 NOSPARE = {(77, 3): {9, 11}, (7, 246): {2, 3, 4}}
@@ -432,7 +435,7 @@ for sc in screens:
     # a flat area) gets a copy of its tile in a tile slot no map uses, its pixels pointed at the entries of the row
     # that have the colours wanted (or a spare entry), and the cell pointed at the copy. All as tile patches (the copy
     # is written into a blank tile; the cell's map entry gets the copy's tile number).
-    if sc not in NOMAP:
+    if sc not in NOMAP and sc not in NOCOPY:
         vid = b
         def rd(addr, n):
             o = (dsrender.O_BGM + addr - 0x06000000) if addr < 0x06200000 else (dsrender.O_BGS + addr - 0x06200000)
@@ -656,6 +659,13 @@ for sig_, names in by_sig.items():
         for n_ in names:
             screens[n_].setdefault('link', []).append((i_, src))
         ipstat['colour links'] += 1
+# index patches a press animation reuses for another job: the battle bag's pressed pocket (picture 69) shows the
+# pocket's icon in sub BG entries 2-3 at that frame, the frames after use them for the pressed fill (it flashed green)
+# (set to the owner's pressed look instead: black fill)
+SET_IPATCH = {'69_battle_bag_pocket_pressed.png': {514: 0, 515: 0, 523: 0}}
+for sc_, set_ in SET_IPATCH.items():
+    if sc_ in screens:
+        screens[sc_]['ipatch'] = [(i_, c_) for i_, c_ in screens[sc_].get('ipatch', []) if i_ not in set_] + sorted(set_.items())
 # row rules: buttons with a palette row each, the selected one told apart by the game's colours (the field menu's
 # cursor: the selected button's row gets red entries). The owner's picture has the unselected rows recoloured alike and
 # the selected one as the game shows it: those index patches become a rule for every row of the group (the selected
@@ -701,6 +711,73 @@ for sc_, sc in screens.items():
         print('row rule', sc_, 'block', blk, 'rows', sorted(grp + sib), 'key entry', key)
     if rules:
         sc['rules'] = rules
+# sprite palette moves (rhtheme/ ObjCopies, tile count 0): a sprite whose pixels the owner coloured differently from
+# what its palette row's entries give on the screen (the field menu's "A CHECK" label on the red CHECK button: the same
+# entries) gets a free OBJ palette row of its own, a copy of its row with the owner's colours
+SPRITE_ROWS = set()    # (off: on the field menu the moved label sprites blinked; the bottom screen's sprite copy
+                       # comes at times the theme can't follow)
+for sc_, sc in screens.items():
+    f_ = CAPS + 'am_' + MATCH[sc_] + '.vram2'
+    if sc_ not in SPRITE_ROWS or not os.path.exists(f_) or not os.path.exists(CAPS + 'def_' + MATCH[sc_] + '.png'):
+        continue
+    vb = open(f_, 'rb').read()
+    shot_ = Image.open(CAPS + 'am_' + MATCH[sc_] + '.png').convert('RGB')
+    scr_, fit_ = dsrender.screens(vb, shot_)
+    o_ = Image.open(PA[sc_]).convert('RGB'); d_ = Image.open(PD[sc_]).convert('RGB')
+    dc_ = Image.open(CAPS + 'def_' + MATCH[sc_] + '.png').convert('RGB')
+    fin = {i_: dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)}
+    fin.update({i_: c_ for i_, c_ in sc.get('ipatch', []) if c_ < 0x80000000})
+    want_s = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
+    bad_s = collections.Counter()
+    for half in (0, 1):
+        if fit_[half] < 0.95:
+            continue
+        for y_ in range(192):
+            for x_ in range(256):
+                q = scr_[half][y_][x_]
+                if not q or q['kind'] != 'obj' or q.get('oam') is None or q.get('semi') or q.get('effect'):
+                    continue
+                Y = half * 192 + y_
+                if d_.getpixel((x_, Y)) != dc_.getpixel((x_, Y)):
+                    continue                        # (another frame there)
+                ow = own5(o_.getpixel((x_, Y)))
+                key = (half, q['oam'])
+                want_s[key][q['idx']][ow] += 1
+                if fin.get(q['idx']) != ow:
+                    bad_s[key] += 1
+    eng_of = {h_: (dsrender.ENGINES[0][h_]) for h_ in (0, 1)}
+    used_rows = collections.defaultdict(set)
+    for h_ in (0, 1):
+        for line in scr_[h_]:
+            for q in line:
+                if q and q['kind'] == 'obj':
+                    used_rows[eng_of[h_]].add(q['idx'] // 16)
+    for (half, k_), nbad in bad_s.items():
+        if nbad < 6:
+            continue
+        eng_ = eng_of[half]
+        oam_ = vb[dsrender.O_OAM + 0x400 * eng_:dsrender.O_OAM + 0x400 * eng_ + 0x400]
+        a0, a1, a2 = (int.from_bytes(oam_[k_ * 8 + 2 * w_:k_ * 8 + 2 * w_ + 2], 'little') for w_ in range(3))
+        pal_ = a2 >> 12; base_ = (768 if eng_ else 256) + pal_ * 16
+        wants = {i_ % 16: cn.most_common(1)[0][0] for i_, cn in want_s[(half, k_)].items() if i_ // 16 == base_ // 16}
+        if not wants or any(cn.most_common(1)[0][1] * 2 < sum(cn.values()) for cn in want_s[(half, k_)].values()):
+            continue                                # (the owner's colours on it are not one per entry)
+        oamrow = {int.from_bytes(oam_[q_ * 8 + 4:q_ * 8 + 6], 'little') >> 12 for q_ in range(128)
+                  if (int.from_bytes(oam_[q_ * 8:q_ * 8 + 2], 'little') & 0x300) != 0x200}
+        base0 = 768 if eng_ else 256
+        free = [r_ for r_ in range(15, 0, -1) if (base0 // 16 + r_) not in used_rows[eng_] and r_ not in oamrow
+                and not any(base0 + r_ * 16 + j_ in fin and (base0 + r_ * 16 + j_) in dict(sc.get('ipatch', [])) for j_ in range(16))]
+        if not free:
+            ipstat['sprite palette move: no free row'] += 1; continue
+        nr = free[0]
+        used_rows[eng_].add(base0 // 16 + nr)
+        ip_ = dict(sc.get('ipatch', []))
+        for j_ in range(16):
+            ip_[base0 + nr * 16 + j_] = wants.get(j_, fin.get(base_ + j_, 0)) & 0x7FFF
+        sc['ipatch'] = sorted(ip_.items())
+        sc.setdefault('objcopy', []).append((eng_ | pal_ << 4 | (a2 & 1023) << 16, nr | ((a1 & 511) + 1) << 4))
+        ipstat['sprite palette moves'] += 1
+        print('sprite palette move', sc_, 'oam', k_, 'tile', a2 & 1023, 'palette', pal_, '->', nr)
 # sprite copies (rhtheme/ ObjCopies): sprites drawn with the same tiles twice, flipped, the owner coloured differently
 # - the bag's selected-item frame (sub OBJ palette 9, entry 12): its bottom half (vertically flipped sprites) in the
 #   owner's darker pocket colour. Copies at free tiles 480+ (empty in every bag state captured), entry 12 -> spare 14
@@ -741,7 +818,7 @@ for sc_, (eng_, pal_, vf_, frm_, to_, dst_) in OBJ_COPIES.items():
     for st, cnt_ in sorted(starts.items()):
         cps.append((eng_ | pal_ << 4 | vf_ << 8 | st << 16, d_ | cnt_ << 16 | frm_ << 24 | to_ << 28))
         d_ += cnt_
-    screens[sc_]['objcopy'] = cps
+    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + cps
     screens[sc_]['ipatch'] = [(i_, c_) for i_, c_ in screens[sc_].get('ipatch', []) if i_ != base_ + to_] + [(base_ + to_, col_)]
     ipstat['sprite copies'] += len(cps)
     print('sprite copies', sc_, [(hex(a), hex(b)) for a, b in cps], 'colour', (col_ & 31, col_ >> 5 & 31, col_ >> 10 & 31))

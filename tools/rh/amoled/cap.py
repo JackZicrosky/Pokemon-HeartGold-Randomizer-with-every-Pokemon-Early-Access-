@@ -59,6 +59,29 @@ def log_addr():
     while i >= 0 and (0x023D8000 <= 0x02000000 + i < 0x023E0000 or any(x <= i < y for x, y in code)):
         i = ram.find(sig, i + 1)
     return 0x02000000 + i + 4 if i >= 0 else None      # +4: the reads below expect count at LOG + 4
+def party_ram():
+    # main RAM with the party in a consistent state: the game may be in the middle of editing a Pokemon when the
+    # frame ends (decrypted, checksum not yet redone): a frame more at a time, up to 30
+    import struct
+    def crypt_(buf, seed):
+        out = bytearray(buf); x = seed
+        for i in range(0, len(buf), 2):
+            x = (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+            struct.pack_into('<H', out, i, struct.unpack_from('<H', buf, i)[0] ^ (x >> 16))
+        return out
+    for _ in range(30):
+        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        pat = struct.pack('<I', 6); i = ram.find(pat)
+        while 0 <= i < len(ram) - 8 - 236:
+            cnt = struct.unpack_from('<I', ram, i + 4)[0]
+            if 1 <= cnt <= 6 and i % 4 == 0:
+                o = i + 8
+                pid, _, chk = struct.unpack_from('<IHH', ram, o)
+                if pid and sum(struct.unpack('<64H', crypt_(ram[o + 8:o + 136], chk))) & 0xFFFF == chk:
+                    return ram
+            i = ram.find(pat, i + 1)
+        h.run(1)
+    return ram
 SIG = [None]
 def sig_addr():
     # gRhScreenSig ("RHSG"): in the AMOLED theme's code file, loaded onto the heap (rhtheme/): found once per load
@@ -114,7 +137,7 @@ for k in sys.argv[3:]:
     elif k.startswith('give4:'):                 # give4:MOVE  every RAM party copy: first Pokemon's empty 4th move slot gets MOVE
         import struct
         mv = int(k[6:])
-        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        ram = party_ram()
         def crypt(buf, seed):
             out = bytearray(buf); x = seed
             for i in range(0, len(buf), 2):
@@ -130,7 +153,9 @@ for k in sys.argv[3:]:
             if 1 <= cnt <= 6 and i % 4 == 0:
                 o = i + 8
                 pid, _, chk = struct.unpack_from('<IHH', ram, o)
-                d = crypt(ram[o + 8:o + 136], chk)
+                d = crypt(ram[o + 8:o + 136], chk); enc = True
+                if sum(struct.unpack('<64H', d)) & 0xFFFF != chk and sum(struct.unpack('<64H', ram[o + 8:o + 136])) & 0xFFFF == chk:
+                    d = bytearray(ram[o + 8:o + 136]); enc = False      # (the game has it decrypted right now)
                 if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
                     order = ORDER[((pid >> 13) & 31) % 24]
                     b = order.index('B') * 32
@@ -139,7 +164,7 @@ for k in sys.argv[3:]:
                         struct.pack_into('<H', d, b + 6, mv); d[b + 8 + 3] = 20
                         chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
                         struct.pack_into('<H', ram, o + 6, chk2)
-                        ram[o + 8:o + 136] = crypt(d, chk2)
+                        ram[o + 8:o + 136] = crypt(d, chk2) if enc else d
                         for j in range(o + 6, o + 136): h.emu.memory.write_byte(0x02000000 + j, ram[j])
                         n += 1
                     print('give4 party at', hex(0x02000000 + i), 'moves', moves)
@@ -148,7 +173,7 @@ for k in sys.argv[3:]:
     elif k.startswith('setmon:'):                # setmon:HP,ATK,DEF,SPE,SPA,SPD[,PP1]  every RAM party copy: the first
         import struct                             # Pokemon's current HP and stats (and its first move's PP)
         vals = [int(v) for v in k[7:].split(',')]
-        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        ram = party_ram()
         def crypt(buf, seed):
             out = bytearray(buf); x = seed
             for i in range(0, len(buf), 2):
@@ -163,19 +188,21 @@ for k in sys.argv[3:]:
             if 1 <= cnt <= 6 and i % 4 == 0:
                 o = i + 8
                 pid, _, chk = struct.unpack_from('<IHH', ram, o)
-                d = crypt(ram[o + 8:o + 136], chk)
+                d = crypt(ram[o + 8:o + 136], chk); enc = True
+                if sum(struct.unpack('<64H', d)) & 0xFFFF != chk and sum(struct.unpack('<64H', ram[o + 8:o + 136])) & 0xFFFF == chk:
+                    d = bytearray(ram[o + 8:o + 136]); enc = False      # (the game has it decrypted right now)
                 if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
-                    ext = crypt(ram[o + 136:o + 236], pid)
+                    ext = crypt(ram[o + 136:o + 236], pid) if enc else bytearray(ram[o + 136:o + 236])
                     struct.pack_into('<H', ext, 6, vals[0])                     # current HP
                     for j, v in enumerate(vals[1:6]):
                         struct.pack_into('<H', ext, 10 + 2 * j, v)             # attack, defense, speed, sp. atk, sp. def
-                    ram[o + 136:o + 236] = crypt(ext, pid)
+                    ram[o + 136:o + 236] = crypt(ext, pid) if enc else ext
                     if len(vals) > 6:
                         b = ORDER[((pid >> 13) & 31) % 24].index('B') * 32
                         d[b + 8] = vals[6]
                         chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
                         struct.pack_into('<H', ram, o + 6, chk2)
-                        ram[o + 8:o + 136] = crypt(d, chk2)
+                        ram[o + 8:o + 136] = crypt(d, chk2) if enc else d
                     for j in range(o + 6, o + 236): h.emu.memory.write_byte(0x02000000 + j, ram[j])
                     n += 1
             i = ram.find(pat, i + 1)
@@ -183,7 +210,7 @@ for k in sys.argv[3:]:
     elif k.startswith('setnature:'):             # setnature:N  every RAM party copy: the first Pokemon gets nature N
         import struct                             # (personality % 25): a personality with the same gender byte, ability
         want = int(k[10:])                        # bit and block order, not shiny; the battle stats re-encrypted with it
-        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        ram = party_ram()
         def crypt(buf, seed):
             out = bytearray(buf); x = seed
             for i in range(0, len(buf), 2):
@@ -198,7 +225,9 @@ for k in sys.argv[3:]:
             if 1 <= cnt <= 6 and i % 4 == 0:
                 o = i + 8
                 pid, _, chk = struct.unpack_from('<IHH', ram, o)
-                d = crypt(ram[o + 8:o + 136], chk)
+                d = crypt(ram[o + 8:o + 136], chk); enc = True
+                if sum(struct.unpack('<64H', d)) & 0xFFFF != chk and sum(struct.unpack('<64H', ram[o + 8:o + 136])) & 0xFFFF == chk:
+                    d = bytearray(ram[o + 8:o + 136]); enc = False      # (the game has it decrypted right now)
                 if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
                     a = ORDER[((pid >> 13) & 31) % 24].index('A') * 32
                     otid = struct.unpack_from('<I', d, a + 4)[0]
@@ -209,9 +238,9 @@ for k in sys.argv[3:]:
                         if cand % 25 == want and ((cand >> 16) ^ (cand & 0xFFFF) ^ (otid >> 16) ^ (otid & 0xFFFF)) >= 8:
                             new = cand; break
                     if new is not None:
-                        ext = crypt(ram[o + 136:o + 236], pid)
+                        ext = crypt(ram[o + 136:o + 236], pid) if enc else bytearray(ram[o + 136:o + 236])
                         struct.pack_into('<I', ram, o, new)
-                        ram[o + 136:o + 236] = crypt(ext, new)
+                        ram[o + 136:o + 236] = crypt(ext, new) if enc else ext
                         for j in range(o, o + 236): h.emu.memory.write_byte(0x02000000 + j, ram[j])
                         n += 1
             i = ram.find(pat, i + 1)
@@ -220,7 +249,7 @@ for k in sys.argv[3:]:
         import struct                             # Pokemon's block A-D (decrypted), checksum and encryption redone
         blk, off, hx = k[6:].split(',')
         val = bytes.fromhex(hx); off = int(off, 16)
-        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        ram = party_ram()
         def crypt(buf, seed):
             out = bytearray(buf); x = seed
             for i in range(0, len(buf), 2):
@@ -235,13 +264,15 @@ for k in sys.argv[3:]:
             if 1 <= cnt <= 6 and i % 4 == 0:
                 o = i + 8
                 pid, _, chk = struct.unpack_from('<IHH', ram, o)
-                d = crypt(ram[o + 8:o + 136], chk)
+                d = crypt(ram[o + 8:o + 136], chk); enc = True
+                if sum(struct.unpack('<64H', d)) & 0xFFFF != chk and sum(struct.unpack('<64H', ram[o + 8:o + 136])) & 0xFFFF == chk:
+                    d = bytearray(ram[o + 8:o + 136]); enc = False      # (the game has it decrypted right now)
                 if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
                     b = ORDER[((pid >> 13) & 31) % 24].index(blk) * 32
                     d[b + off:b + off + len(val)] = val
                     chk2 = sum(struct.unpack('<64H', d)) & 0xFFFF
                     struct.pack_into('<H', ram, o + 6, chk2)
-                    ram[o + 8:o + 136] = crypt(d, chk2)
+                    ram[o + 8:o + 136] = crypt(d, chk2) if enc else d
                     for j in range(o + 6, o + 136): h.emu.memory.write_byte(0x02000000 + j, ram[j])
                     n += 1
             i = ram.find(pat, i + 1)
@@ -249,7 +280,7 @@ for k in sys.argv[3:]:
     elif k.startswith('party6:'):                # party6:SPECIES/ITEM/BALL[/HP];...  every RAM party copy: the first
         import struct                             # Pokemon cloned into slots 1-6 (count 6), each with its species,
         specs = [tuple(int(x) for x in e.split('/')) for e in k[7:].split(';')]   # held item, Poke Ball (current HP)
-        ram = bytearray(h.emu.memory.read(0x02000000, 0x023FFFFF, 1, False))
+        ram = party_ram()
         def crypt(buf, seed):
             out = bytearray(buf); x = seed
             for i in range(0, len(buf), 2):
@@ -264,9 +295,11 @@ for k in sys.argv[3:]:
             if 1 <= cnt <= 6 and i % 4 == 0:
                 o = i + 8
                 pid, _, chk = struct.unpack_from('<IHH', ram, o)
-                d = crypt(ram[o + 8:o + 136], chk)
+                d = crypt(ram[o + 8:o + 136], chk); enc = True
+                if sum(struct.unpack('<64H', d)) & 0xFFFF != chk and sum(struct.unpack('<64H', ram[o + 8:o + 136])) & 0xFFFF == chk:
+                    d = bytearray(ram[o + 8:o + 136]); enc = False      # (the game has it decrypted right now)
                 if sum(struct.unpack('<64H', d)) & 0xFFFF == chk and pid != 0:
-                    ext = crypt(ram[o + 136:o + 236], pid)
+                    ext = crypt(ram[o + 136:o + 236], pid) if enc else bytearray(ram[o + 136:o + 236])
                     order = ORDER[((pid >> 13) & 31) % 24]
                     A, D = order.index('A') * 32, order.index('D') * 32
                     for slot, e in enumerate(specs[:6]):
@@ -277,8 +310,8 @@ for k in sys.argv[3:]:
                         c2 = sum(struct.unpack('<64H', dd)) & 0xFFFF
                         q = o + slot * 236
                         struct.pack_into('<IHH', ram, q, pid, struct.unpack_from('<H', ram, o + 4)[0], c2)
-                        ram[q + 8:q + 136] = crypt(dd, c2)
-                        ram[q + 136:q + 236] = crypt(ee, pid)
+                        ram[q + 8:q + 136] = crypt(dd, c2) if enc else dd
+                        ram[q + 136:q + 236] = crypt(ee, pid) if enc else ee
                     struct.pack_into('<I', ram, i + 4, min(6, len(specs)))
                     for j in range(i + 4, o + 236 * 6): h.emu.memory.write_byte(0x02000000 + j, ram[j])
                     n += 1
