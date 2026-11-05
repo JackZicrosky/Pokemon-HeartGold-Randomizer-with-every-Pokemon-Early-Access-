@@ -228,7 +228,14 @@ static const struct CodeColour sCodeColours[] = {
     { 0x02227CB8, 0x6B5A, 0x0000, 0x02227C6A, 0x87D0 },
     { 0x02228B84, 0x7D8C, 0x0000, 0x02228A6E, 0x8001 },
     { 0x0222AC18, 0x7D8C, 0x0000, 0x0222ABC6, 0x8001 },
+    // field menu, cursor mode (opened with X): G2S_SetBlendAlpha(0, 0x23, 6, 9) every frame dims the buttons through
+    // their semi-transparent sprites; the owner's design has no dimming (the register patch lost the race every other
+    // frame: the game sets it after the theme's tasks). An instruction: "movs r2, #0x23" -> "movs r2, #0" (plane 2
+    // none), guarded by the next one ("movs r3, #6")
+    { 0x0225A9A2, 0x2223, 0x2200, 0x0225A9A4, 0x2306 },
 };
+#define DC_FlushRange_      ((void (*)(void *, u32))0x020D2894)       // ARM
+#define IC_InvalidateRange_ ((void (*)(void *, u32))0x020D28D0)       // ARM
 
 static void ThemeCodeColours(void)
 {
@@ -237,7 +244,11 @@ static void ThemeCodeColours(void)
     {
         const struct CodeColour *c = &sCodeColours[i];
         if (*(u16 *)c->guard == c->guardValue && *(u16 *)c->addr == c->vanilla)
+        {
             *(u16 *)c->addr = c->amoled;
+            DC_FlushRange_((void *)(c->addr & ~31u), 32);        // (code: the CPU must fetch the new instruction)
+            IC_InvalidateRange_((void *)(c->addr & ~31u), 32);
+        }
     }
 }
 
@@ -561,50 +572,57 @@ static u32 *PgFile(void)
 // u32 layer setup, u16 regions[48] } }, read once.
 #define FZ_EMPTY 0x9070            // a region without tiles
 #define FZ_SIZE  (8 + 96)
-#define FZ_CHUNK 8                 // (read 8 at a time onto the stack: the system heap is short in battles)
-static u32 sFzSig = 0xFFFFFFFF, sFzRes;
+#define FZ_CACHE 16                // results kept: a screen's animated maps give fingerprints that come back
+static u32 sFzSig[FZ_CACHE], sFzRes[FZ_CACHE], sFzNext;
+static u8 *sFzTable;
+static u32 sFzCount;
+static u32 FuzzyScore(const u8 *e, u32 *best, u32 *bm, u32 *tie)
+{
+    const u16 *r = (const u16 *)(e + 8);
+    u32 i, tot = 0, m = 0;
+    if (*(const u32 *)(e + 4) != sCurCfg)
+        return 0;
+    for (i = 0; i < 48; i++)
+    {
+        if ((r[i] == FZ_EMPTY || r[i] == 0) && (sCurReg[i] == FZ_EMPTY || sCurReg[i] == 0))
+            continue;
+        tot++;
+        m += r[i] == sCurReg[i];
+    }
+    if (tot == 0 || m * 4 < tot * 3)
+        return 0;
+    if (m > *bm)
+    {
+        *bm = m; *best = *(const u32 *)e; *tie = 0;
+    }
+    else if (m == *bm && *(const u32 *)e != *best)
+        *tie = 1;                      // (states of one family leading to the same screen: no tie)
+    return 0;
+}
+
 static u32 FuzzyFind(u32 sig)
 {
-    u32 buf[FZ_CHUNK * FZ_SIZE / 4], i, k, c, n = 0, best = 0, bm = 0, tie = 0, *file;
-    if (sig == sFzSig)
-        return sFzRes;
-    if (sFuzzyAt == 0 || (file = PgFile()) == NULL)
-        return 0;
-    sFzSig = sig;
-    sFzRes = 0;
-    FS_SeekFile(file, sFuzzyAt, 0);
-    if (FS_ReadFile(file, &n, 4) != 4 || n > 512)
-        return 0;
-    for (c = 0; c < n; c += FZ_CHUNK)
-    {
-        u32 m_ = n - c < FZ_CHUNK ? n - c : FZ_CHUNK;
-        FS_ReadFile(file, buf, m_ * FZ_SIZE);
-        for (k = 0; k < m_; k++)
-        {
-            const u8 *e = (const u8 *)buf + k * FZ_SIZE;
-            const u16 *r = (const u16 *)(e + 8);
-            u32 tot = 0, m = 0;
-            if (*(const u32 *)(e + 4) != sCurCfg)
-                continue;
-            for (i = 0; i < 48; i++)
-            {
-                if ((r[i] == FZ_EMPTY || r[i] == 0) && (sCurReg[i] == FZ_EMPTY || sCurReg[i] == 0))
-                    continue;
-                tot++;
-                m += r[i] == sCurReg[i];
-            }
-            if (tot == 0 || m * 4 < tot * 3)
-                continue;
-            if (m > bm)
-            {
-                bm = m; best = *(const u32 *)e; tie = 0;
-            }
-            else if (m == bm && *(const u32 *)e != best)
-                tie = 1;                       // (states of one family leading to the same screen: no tie)
-        }
+    u32 k, n = 0, best = 0, bm = 0, tie = 0, *file;
+    for (k = 0; k < FZ_CACHE; k++)
+        if (sFzSig[k] == sig && sig != 0)
+            return sFzRes[k];
+    if (sFzTable == NULL)              // (the table in memory, read once when the system heap has room: read from the
+    {                                  // card each time, a battle's animated maps made it lag; no room: tried again
+        static u32 sRetry;             // a while later, not on every fingerprint)
+        if ((sRetry++ & 63) != 0 || sFuzzyAt == 0 || (file = PgFile()) == NULL)
+            return 0;
+        FS_SeekFile(file, sFuzzyAt, 0);
+        if (FS_ReadFile(file, &n, 4) != 4 || n == 0 || n > 512 || (sFzTable = SafeAlloc(n * FZ_SIZE)) == NULL)
+            return 0;
+        FS_ReadFile(file, sFzTable, n * FZ_SIZE);
+        sFzCount = n;
     }
-    sFzRes = tie ? 0 : best;
-    return sFzRes;
+    for (k = 0; k < sFzCount; k++)
+        FuzzyScore(sFzTable + k * FZ_SIZE, &best, &bm, &tie);
+    k = sFzNext++ % FZ_CACHE;
+    sFzSig[k] = sig;
+    sFzRes[k] = tie ? 0 : best;
+    return sFzRes[k];
 }
 
 // Row rules (tools/rh/amoled/learn.py): buttons with a palette row each, the selected one told apart by the game's
@@ -650,6 +668,7 @@ static BOOL sFuzzyShown, sFuzzyNext;    // the shown (next) page was found by Fu
 struct ObjCopy { u32 w[2], mine; };   // (ObjCopies, below; mine: the copy's place was found empty, it is the theme's)
 static struct ObjCopy *sObjCopies;
 static u32 sObjCopyCount;
+static void ObjCopyTiles(void);
 static void ShowScreen(u32 sig)
 {
     u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
@@ -783,6 +802,7 @@ static void RegTask(void *task, void *data)
     for (i = 0; i < sRegCount; i++)             // (first: early in the vertical blank)
         *(vu16 *)(0x04000000 + (sRegs[i] >> 16)) = (u16)sRegs[i];
     RowRules(FALSE);                            // (a selection the game moved: right away)
+    ObjCopyTiles();
     // the screen's palette index patches in palette RAM: a colour the game loads straight into it (an icon's blink,
     // the battle HP boxes) would show until ThemeTask's next run. Not over a fade step (palette RAM = the game's
     // faded buffer: fades go on, also the ones of a single row, e.g. a blinking icon). What the game loaded is what
@@ -983,16 +1003,17 @@ static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
 // edge darker). The flipped sprites are pointed at a copy of their tiles in free OBJ VRAM (written only where those
 // tiles are empty or the copy), with one entry moved to a spare one. Each: { w0 = engine | palette << 4 | vflip << 8 |
 // first tile << 16, w1 = copy's first tile | tile count << 16 | entry << 24 | spare entry << 28 }.
-static void ObjCopies(void)
+// tiles: once per frame (RegTask: the game also copies single sprites, many times a frame); sprites: after every copy
+// of the game's sprites
+static void ObjCopyTiles(void)
 {
-    u32 n, k, i;
+    u32 n, i;
     for (n = 0; n < sObjCopyCount; n++)
     {
-        u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1;
+        u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1;
         u32 src = w0 >> 16 & 1023, dst = w1 & 1023, cnt = w1 >> 16 & 255, from = w1 >> 24 & 15, to = w1 >> 28 & 15;
         u32 sh = 5 + (*(vu32 *)(eng ? 0x04001000 : 0x04000000) >> 20 & 3);
         vu32 *vs = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (src << sh)), *vd = (vu32 *)((eng ? 0x06600000 : 0x06400000) + (dst << sh));
-        vu16 *oam = (vu16 *)(eng ? 0x07000400 : 0x07000000);
         BOOL ok = TRUE;
         if (!sObjCopies[n].mine)                       // (the copy's place: empty, else the game uses it)
             for (i = 0; i < cnt * 8 && ok; i++)
@@ -1000,7 +1021,7 @@ static void ObjCopies(void)
         if (!ok)
             continue;
         sObjCopies[n].mine = 1;
-        for (i = 0; i < cnt * 8; i++)                  // (again every time: the game animates the tiles)
+        for (i = 0; i < cnt * 8; i++)                  // (again every frame: the game animates the tiles)
         {
             u32 w = vs[i], m = 0, q;
             for (q = 0; q < 8; q++)
@@ -1010,9 +1031,26 @@ static void ObjCopies(void)
             if (vd[i] != w)
                 vd[i] = w;
         }
-        for (k = 0; k < 128; k++, oam += 4)
-            if ((oam[0] & 0x300) != 0x200 && (oam[2] & 1023) == src && (oam[2] >> 12) == pal && (oam[1] >> 13 & 1) == vf)
-                oam[2] = (u16)((oam[2] & ~1023u) | dst);
+    }
+}
+
+static void ObjCopies(u32 offset, u32 size)
+{
+    u32 n, k;
+    for (n = 0; n < sObjCopyCount; n++)
+    {
+        u32 w0 = sObjCopies[n].w[0], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1, src = w0 >> 16 & 1023;
+        u32 dst = sObjCopies[n].w[1] & 1023, lo = eng ? 128 : 0, hi = lo + 128;
+        vu16 *oam = (vu16 *)0x07000000;
+        (void)offset; (void)size;        // (the whole engine's OAM: the sub screen's copies don't come through here)
+        if (!sObjCopies[n].mine)
+            continue;
+        for (k = lo; k < hi; k++)
+        {
+            vu16 *e = oam + k * 4;
+            if ((e[0] & 0x300) != 0x200 && (e[2] & 1023) == src && (e[2] >> 12) == pal && (e[1] >> 13 & 1) == vf)
+                e[2] = (u16)((e[2] & ~1023u) | dst);
+        }
     }
 }
 
@@ -1020,8 +1058,7 @@ static void ObjCopies(void)
 static void ThemeOam(u32 offset, u32 size)
 {
     u32 i;
-    (void)offset; (void)size;
-    ObjCopies();
+    ObjCopies(offset, size);
     // the register patches here too: the game's vertical-blank callback (which copies the sprites) may set its
     // registers after RegTask ran (the field menu's dimming blend came back every other frame)
     for (i = 0; i < sRegCount; i++)

@@ -396,6 +396,7 @@ for sc in screens:
     shown_rows = {q['idx'] // 16 for half in scr for line in half for q in line if q}
     groups, taken_rows = {}, set()
     clone_cells, clone_spare, clone_taken, used_tiles, mapped = set(), {}, set(), {}, set()
+    mapped_row, group_used = {}, collections.defaultdict(set)   # (map-patched cells: their own row, its entries used)
     for maddr, ents in (sorted(cellw.items()) if sc not in NOMAP else []):
         ov = {}
         for i, cnt in ents.items():
@@ -420,6 +421,8 @@ for sc in screens:
                 ip.append((r * 16 + j, ov.get(j, major.get(base + j, dsrender.colour(b, base + j)))))
         screens[sc].setdefault('vpatch', []).append((maddr + 1, 1, (base - eb) // 16, groups[key] - eb // 16))
         mapped.add(maddr)
+        mapped_row[maddr] = groups[key]
+        group_used[groups[key]] |= {q_[2] % 16 for q_ in cellpx.get(maddr, [])}
         ipstat['map patches'] += 1
     ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files) or i in art_ok]
     done = {i for i, _ in ip}
@@ -444,7 +447,7 @@ for sc in screens:
             mixed = any(len(cnt) > 1 for cnt in ents.values())
             if maddr not in clone_cells and not (mixed and any(c != final.get(i) for i, cnt in ents.items() for c in cnt)):
                 continue
-            if maddr in mapped:
+            if maddr in mapped and not mixed:
                 continue                              # (pointed at a palette row of its own already)
             if not all(static_tile(vid, v) for v, _, _, _ in pts):
                 ipstat['tile copy: runtime-drawn tile'] += 1; continue
@@ -452,6 +455,12 @@ for sc in screens:
             tbase = pts[0][0] & ~31
             cbase = tbase - tile * 32
             row = pts[0][2] & ~15
+            # (a map-patched cell that still wants one entry in two colours - an eye's white on a portrait's dark
+            # background, trainer card - copies its tile within its own row: the spare is an entry no cell of that
+            # row uses)
+            own_row = mapped_row.get(maddr)
+            if own_row is not None:
+                row = own_row * 16
             # each pixel: the entry of the row that has the colour wanted
             new = bytearray(rd(tbase, 32)); changed = False; ok = True
             for k in range(64):                       # (the tile's own patches go with the copy)
@@ -459,14 +468,17 @@ for sc in screens:
                 if tp is not None and (new[k // 2] >> (4 * (k & 1)) & 15) == tp[0]:
                     new[k // 2] = (new[k // 2] & (0xF0 if k & 1 == 0 else 0x0F)) | tp[1] << (4 * (k & 1))
             for v, h, idx, w in pts:
-                if final.get(idx) == w:
+                if final.get(row | (idx & 15) if own_row is not None else idx) == w:
                     continue
                 e = next((j for j in range(1, 16) if final.get(row | j) == w), None)
                 if e is None:
                     e = clone_spare.get((row, w))
                     if e is None:
-                        fr = [j for j in range(15, 0, -1) if (row | j) not in shown_idx_am and (row | j) not in clone_taken
-                              and (row | j) not in final_set and j not in NOSPARE.get(rowfile.get(row // 16), ())]
+                        if own_row is not None:
+                            fr = [j for j in range(15, 0, -1) if j not in group_used[own_row] and (row | j) not in clone_taken]
+                        else:
+                            fr = [j for j in range(15, 0, -1) if (row | j) not in shown_idx_am and (row | j) not in clone_taken
+                                  and (row | j) not in final_set and j not in NOSPARE.get(rowfile.get(row // 16), ())]
                         if not fr:
                             ok = False; break
                         e = fr[0]; clone_taken.add(row | e); clone_spare[(row, w)] = e; ip.append((row | e, w)); final[row | e] = w
@@ -604,8 +616,9 @@ for fam in FAMILIES:
             want_[i_][c_] += 1
     full = [n_ for n_ in fam if len(screens[n_].get('ipatch', [])) == max(len(screens[m_].get('ipatch', [])) for m_ in fam)]
     for i_, cn in want_.items():
-        if len(cn) < 2:
-            continue
+        if len(cn) < 2 or not 512 <= i_ < 768:
+            continue                          # (only the list's background entries: the item text. A sprite or the
+                                              # top screen's gradient legitimately differs per pocket / selection)
         cs = [c_ for n_ in fam for j_, c_ in screens[n_].get('ipatch', []) if j_ == i_ and len(dict(screens[n_]['ipatch'])) >= len(dict(screens[full[0]]['ipatch'])) - 8]
         if not cs or len(set(cs)) > 1:
             continue                          # (pockets with items disagree: each pocket's own colour)

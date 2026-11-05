@@ -332,16 +332,23 @@ void RH_HpOam(void)
 
 // after the sprite library's own OAM copies (moving sprites between the game's full copies, theme's hook): each
 // overlay put in earlier takes its box sprite's new position, or goes away with it
-void RH_HpSync(void)
+// (returns whether an overlay put in was overwritten by the copy: then they go in again, RH_HpOam)
+u32 RH_HpSync(void)
 {
-    u32 s, i, shift = 5 + (*(vu32 *)0x04000000 >> 20 & 3);
+    u32 s, i, shift = 5 + (*(vu32 *)0x04000000 >> 20 & 3), lost = 0;
     for (s = 0; s < MAX_PIECES; s++)
     {
         u32 j = sPut[s] - 1u;
+        if (j < 128 && (OAM[j * 4 + 2] & 1023) != OVL_SLOT(s))
+        {
+            lost = 1;
+            sPut[s] = 0;
+        }
         if (j >= 128 || (OAM[j * 4 + 2] & 1023) != OVL_SLOT(s))
             continue;
-        for (i = 0; i < 128; i++)
-            if (i != j && (OAM[i * 4 + 2] & 1023) == sPiece[s].tile && (OAM[i * 4] & 0x300) != 0x200)
+        for (i = 0; i < 128; i++)        // (the box sprite: 64x64; the game also has smaller sprites on its tiles)
+            if (i != j && (OAM[i * 4 + 2] & 1023) == sPiece[s].tile && (OAM[i * 4] & 0x300) != 0x200
+                && OAM[i * 4] >> 14 == 0 && OAM[i * 4 + 1] >> 14 == 3)
                 break;
         if (i == 128)
             OAM[j * 4] = 0x200;
@@ -351,6 +358,7 @@ void RH_HpSync(void)
             OAM[j * 4 + 1] = OAM[i * 4 + 1];
         }
     }
+    return lost;
 }
 
 
