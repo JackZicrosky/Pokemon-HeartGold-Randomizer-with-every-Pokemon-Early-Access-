@@ -53,6 +53,16 @@ NOMAP = {'72_battle_check_moves.png'}
 RUNTIME_OK = {'35_options_menu.png'}
 # screens caught mid-animation (a button press): the game draws the animation into tiles that look free in the
 # capture, so no tile copies there (they showed through the press animation in green)
+# screens whose one-colour fill tiles may be copied (the battle party panel: the owner's green frame runs 2 pixels
+# into the panel's fill tile, the copy gets the frame's pixels; no text is ever drawn into those edge cells)
+SOLID_COPY_OK = {'65_battle_party_menu.png'}
+def solid_tile(dump, addr):
+    import dsrender as R
+    for base, off, size in ((0x06000000, R.O_BGM, 0x80000), (0x06200000, R.O_BGS, 0x20000)):
+        if base <= addr < base + size:
+            o = off + ((addr - base) & ~31); t = dump[o:o + 32]
+            return t in STATIC and len({v & 15 for v in t} | {v >> 4 for v in t}) == 1
+    return False
 NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
@@ -180,11 +190,29 @@ for sc, ents in pix.items():
     # what the owner wants at every use of a tile pixel (a tile can be drawn in many places): patch only where most agree
     o_img = Image.open(PA[sc]).convert('RGB')
     tile_want = collections.defaultdict(collections.Counter)
+    tile_want_row = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))   # per palette row
     for yy in range(384):
         for xx in range(256):
             q = scr[yy // 192][yy % 192][xx]
             if q is not None and q['kind'] in ('bg', 'obj') and q.get('vram') is not None:
                 op = o_img.getpixel((xx, yy)); tile_want[(q['vram'], q['half'])][(o1(op[0]), o1(op[1]), o1(op[2]))] += 1
+                if q.get('half') is not None:
+                    tile_want_row[(q['vram'], q['half'])][q['idx'] & ~15][(o1(op[0]), o1(op[1]), o1(op[2]))] += 1
+    def rows_ok(r, col, j):
+        # a tile pixel drawn with several palette rows (the battle party panel's frame tiles: the green panel and the
+        # blue buttons): fine when every row wants one colour there; the spare entry j then gets each row's colour
+        if j is None: return None
+        tr = tile_want_row[(r['vram'], r['half'])]; me = r['idx'] & ~15
+        if me not in tr or len(tr[me]) != 1 or tr[me].most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31):
+            return None
+        out = {}
+        for rb, cnt in tr.items():
+            if rb == me: continue
+            if len(cnt) != 1 or (rb | j) in shown_idx: return None
+            c = cnt.most_common(1)[0][0]; c = c[0] | c[1] << 5 | c[2] << 10
+            if spare_ip[sc].get(rb | j, c) != c: return None
+            out[rb | j] = c
+        return out
     for (n, f, i, ctx), cols in ents.items():
         if len(cols) < 2: continue
         # the colour the entry keeps: the one drawn on runtime tiles (text, numbers: tile patches can't move those)
@@ -219,7 +247,7 @@ for sc, ents in pix.items():
                 del spare[key]                        # (that spare is drawn by something else on this screen)
             if key not in spare:
                 free = [j for j in range(1, 16) if j not in taken[(sc, n, f, row)] and j not in NOSPARE.get((n, f), ())
-                        and (base | j) not in shown_idx] if base is not None else []
+                        and (base | j) not in shown_idx and (base | j) not in spare_ip[sc]] if base is not None else []
                 if free:
                     spare[key] = free[0]; taken[(sc, n, f, row)].add(free[0])
             j = spare.get(key)                        # (None: no spare in the 16-colour row; 256-colour pixels still can)
@@ -257,12 +285,16 @@ for sc, ents in pix.items():
                 tw = tile_want[(r['vram'], r['half'])]
                 # (every place the tile pixel is drawn must want that colour: a tile drawn elsewhere in the owner's other
                 # colour, e.g. mirrored halves of a picture, gets map patches per cell instead)
+                other_rows = {}
                 if sc not in NOMAP and tw and (len(tw) > 1 or tw.most_common(1)[0][0] != (col & 31, col >> 5 & 31, col >> 10 & 31)):
-                    nopatch['tile drawn elsewhere in another colour'] += 1; continue
+                    other_rows = rows_ok(r, col, j)
+                    if other_rows is None:
+                        nopatch['tile drawn elsewhere in another colour'] += 1; continue
                 if not static_tile(bid, r['vram']) and not (sc in RUNTIME_OK and r['kind'] == 'obj'):
                     nopatch['runtime-drawn tile (text, numbers, sprites)'] += 1; continue
                 patches.add((r['vram'], r['half'], i % 16, j)); got += 1
                 spare_ip[sc][(r['idx'] & ~15) | j] = col          # the spare entry's colour, straight into palette RAM
+                spare_ip[sc].update(other_rows)
             nopatch['not a 4bpp tile pixel'] += len(pts) - got
             if got and j is not None:
                 screens[sc]['cols']['%d,%d,%d@%d' % (n, f, row * 16 + j, ctx)] = int(''.join(map(str, [col])) if isinstance(col, int) else col)
@@ -444,6 +476,7 @@ for sc in screens:
         # the colour every entry will show on this screen: its index patch, else what the game loads (this capture)
         final = {i: dsrender.colour(b, i) & 0x7FFF for i in range(1024)}
         final.update(dict(ip)); final_set = {i for i, _ in ip}
+        copy_made = {}
         for maddr in sorted(cellpx):
             pts = cellpx[maddr]
             ents = cellw[maddr]
@@ -452,7 +485,7 @@ for sc in screens:
                 continue
             if maddr in mapped and not mixed:
                 continue                              # (pointed at a palette row of its own already)
-            if not all(static_tile(vid, v) for v, _, _, _ in pts):
+            if not all(static_tile(vid, v) or (sc in SOLID_COPY_OK and solid_tile(vid, v)) for v, _, _, _ in pts):
                 ipstat['tile copy: runtime-drawn tile'] += 1; continue
             entry = int.from_bytes(rd(maddr, 2), 'little'); tile = entry & 0x3FF
             tbase = pts[0][0] & ~31
@@ -518,16 +551,21 @@ for sc in screens:
                 used_tiles[cbase] = [cbase + t * 32 for t in range(1023, 0, -1)
                                      if cbase + t * 32 + 32 <= top and cbase + t * 32 not in ref and not any(rd(cbase + t * 32, 32))
                                      and not any(a_ <= cbase + t * 32 < b_ for a_, b_ in maps)]
-            if not used_tiles[cbase]:
-                ipstat['tile copy: no blank tile'] += 1; continue
-            naddr = used_tiles[cbase].pop(0); ntile = (naddr - cbase) // 32
             vp = screens[sc].setdefault('vpatch', [])
-            if len(vp) + 70 > 7500:                   # (the theme loads at most 8192 patches per screen)
-                ipstat['tile copy: screen has too many patches'] += 1; continue
-            for k in range(64):
-                val = new[k // 2] >> (4 * (k & 1)) & 15
-                if val:
-                    vp.append((naddr + k // 2, k & 1, 0, val))
+            ck = (cbase, bytes(new))
+            if ck in copy_made:                       # (the same copy for every cell that wants it: a panel's
+                ntile = copy_made[ck]                 # long edge is one tile repeated down the screen)
+            else:
+                if not used_tiles[cbase]:
+                    ipstat['tile copy: no blank tile'] += 1; continue
+                if len(vp) + 70 > 7500:               # (the theme loads at most 8192 patches per screen)
+                    ipstat['tile copy: screen has too many patches'] += 1; continue
+                naddr = used_tiles[cbase].pop(0); ntile = (naddr - cbase) // 32
+                copy_made[ck] = ntile
+                for k in range(64):
+                    val = new[k // 2] >> (4 * (k & 1)) & 15
+                    if val:
+                        vp.append((naddr + k // 2, k & 1, 0, val))
             nentry = (entry & ~0x3FF) | ntile
             for k in range(4):
                 a_, b_ = entry >> (4 * k) & 15, nentry >> (4 * k) & 15
