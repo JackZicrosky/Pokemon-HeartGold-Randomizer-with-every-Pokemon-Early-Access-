@@ -66,10 +66,17 @@ ICON_SLIPS = {}
 # Pokemon icons that animate (two poses): the owner's Default and AMOLED pictures caught different poses, so the box is
 # taken out of the per-moment check and proven on its own instead: some AMOLED frame of the recording must show the
 # box exactly as the owner's AMOLED picture (the icon's own colours, the pose the owner drew); its wrong pixels count
-ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)], '28_pokedex_list.png': [(36, 204, 68, 236), (152, 204, 184, 236)]}
+ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)], '28_pokedex_list.png': [(36, 204, 68, 236), (152, 204, 184, 236)],
+             # the player's HP box bobs a pixel up and down while the command menu waits (the owner's two pictures
+             # and the recordings catch it at different heights): proven on its own, some frame exactly as drawn
+             '67_battle_fight_pressed.png': [(128, 86, 256, 146)], '68_battle_bag_pressed.png': [(128, 86, 256, 146)],
+             '66_battle_command_menu.png': [(128, 86, 256, 146)]}
 # icons whose animation frame is fixed when the screen opens (the Pokedex list): proven against recordings that open it
 # at different moments (ICON_RECS: extra recordings searched for the owner's frame)
-ICON_RECS = {'28_pokedex_list.png': ['s28v%d' % k for k in range(8)]}
+ICON_RECS = {'28_pokedex_list.png': ['s28v%d' % k for k in range(8)],
+             # (68: the press recording starts a frame after the owner's moment, the box already on its way out; the
+             # same battle's command menu just before the press shows it where the owner's picture has it)
+             '68_battle_bag_pressed.png': ['s2_cmd2']}
 # areas where the owner's Default and AMOLED pictures come from different moments (64/65: the wild Rattata is Lv3
 # in the Default picture, Lv4 in the AMOLED one): the level digit counts neither way
 PAIR_MISMATCH = {'64_battle_party.png': [(80, 27, 93, 37)], '65_battle_party_menu.png': [(80, 27, 93, 37)]}

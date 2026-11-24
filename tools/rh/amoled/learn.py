@@ -831,7 +831,9 @@ for sc_, sc in screens.items():
 # game's colour, the owner's instead (row rules keyed on the entry itself). Oak's boy / girl cards: the unselected
 # card's frame, grey (27,28,28), black in the owner's picture; the selected card's red is the game's (either card).
 # (block, row mask, key entry, game colour, [owner colour], entry mask)
-MANUAL_RULES = {'22_oak_boy_girl_choice.png': [(2, 1, e, 27 | 28 << 5 | 28 << 10, [0], 1 << e) for e in (13, 15)]}
+# (Oak's boy / girl cards: the unselected card's frame grey (27,28,28), black in the owner's picture - off: the game
+# writes that colour every frame, the rule's black and the game's grey alternated: flicker)
+MANUAL_RULES = {}
 for sc_, rl_ in MANUAL_RULES.items():
     if sc_ in screens:
         screens[sc_]['rules'] = screens[sc_].get('rules', []) + rl_
