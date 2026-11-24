@@ -63,6 +63,11 @@ def solid_tile(dump, addr):
             o = off + ((addr - base) & ~31); t = dump[o:o + 32]
             return t in STATIC and len({v & 15 for v in t} | {v >> 4 for v in t}) == 1
     return False
+# palette RAM entries left to the game on a screen: the Pokemon icons' palettes (main OBJ rows 3-5, loaded per
+# species). The party sub-menu dims the screen with the brightness effect, which the theme turns off; the icons then
+# show their own colours as in the owner's picture. Learning them from the picture went wrong: the icons animate, the
+# owner's picture and the capture show different poses one pixel apart, so the outline entry got the panel's green.
+KEEP_IDX = {'40_party_menu.png': set(range(256 + 3 * 16, 256 + 6 * 16))}
 NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
@@ -460,6 +465,7 @@ for sc in screens:
         group_used[groups[key]] |= {q_[2] % 16 for q_ in cellpx.get(maddr, [])}
         ipstat['map patches'] += 1
     ip = [(i, c) for i, c in ip if i // 16 not in rowfile or ui_file(*rowfile[i // 16], learned_files) or i in art_ok]
+    ip = [(i, c) for i, c in ip if i not in KEEP_IDX.get(sc, ())]
     done = {i for i, _ in ip}
     ip += [(i, c) for i, c in spare_ip.get(sc, {}).items() if i not in done]
     # tile copies: a cell (of the game's own graphics) whose pixels want colours its tile can't give where it is

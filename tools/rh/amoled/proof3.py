@@ -56,10 +56,17 @@ def neighbours(cap):
 # the message box's small two-button icon (right end of the box): shown or not by the game's state (the owner's 22
 # and 70 have it off, it is on in the recordings): not part of the situation; where shown, its colours still count
 SIT_IGNORE = [(205, 150, 235, 185)]
-OWNER_SLIPS = {'72_battle_check_moves.png': [((8, 195, 40, 219), (3, 3, 3))]}
+OWNER_SLIPS = {'72_battle_check_moves.png': [((8, 195, 40, 219), (3, 3, 3))],
+               # 74: white specks the owner left inside RESET and at the AREA dashes (owner 2026-11-23: mistakes,
+               # black is right); exactly those pixels
+               '74_pokedex_search.png': [((x, y, x + 1, y + 1), (31, 31, 31)) for x, y in [(71, 328), (96, 328), (26, 366), (33, 366), (34, 366), (35, 366), (36, 366), (40, 366), (47, 366), (48, 366), (49, 366), (50, 366), (51, 366), (52, 366), (43, 367), (51, 367), (52, 367)]]}
 # Pokemon icon outlines the owner coloured differently from the game (owner: either is fine): the icon's box, pixels
 # the owner recoloured
 ICON_SLIPS = {'28_pokedex_list.png': [(24, 196, 72, 240)]}
+# Pokemon icons that animate (two poses): the owner's Default and AMOLED pictures caught different poses, so the box is
+# taken out of the per-moment check and proven on its own instead: some AMOLED frame of the recording must show the
+# box exactly as the owner's AMOLED picture (the icon's own colours, the pose the owner drew); its wrong pixels count
+ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)]}
 # areas where the owner's Default and AMOLED pictures come from different moments (64/65: the wild Rattata is Lv3
 # in the Default picture, Lv4 in the AMOLED one): the level digit counts neither way
 PAIR_MISMATCH = {'64_battle_party.png': [(80, 27, 93, 37)], '65_battle_party_menu.png': [(80, 27, 93, 37)]}
@@ -132,10 +139,17 @@ for name in names:
         slip.paste(0, box); changed.paste(0, box)
     for box in ICON_SLIPS.get(name, []):
         slip.paste(ImageChops.invert(changed).crop(box), box[:2])
+    for box in ICON_ANIM.get(name, []):
+        slip.paste(0, box); changed.paste(0, box)
     res = [r for r in (score_cap(name, c, od, oa, changed, kept, slip) for c in neighbours(M[name])) if r is not None]
     if not res:
         print('%-40s %-16s no recording' % (name, M[name])); continue
     (_, ns, nw), sit, wrong, am, cap = min(res, key=lambda r: r[0])
+    for box in ICON_ANIM.get(name, []):
+        rec = load(cap, 'am')
+        ob = oa.crop(box)
+        if rec:
+            nw += min(count(neq(ob, rec[1](i).crop(box))) for i in range(rec[0]))
     good = ns == 0 and nw <= 9
     ok += good
     if not good:
