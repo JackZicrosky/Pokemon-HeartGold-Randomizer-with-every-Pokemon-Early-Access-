@@ -839,7 +839,7 @@ for sc_, rl_ in MANUAL_RULES.items():
 # sprite palette moves (rhtheme/ ObjCopies, tile count 0): a sprite whose pixels the owner coloured differently from
 # what its palette row's entries give on the screen (the field menu's "A CHECK" label on the red CHECK button: the same
 # entries) gets a free OBJ palette row of its own, a copy of its row with the owner's colours
-SPRITE_ROWS = {"24_naming_screen.png"}    # (not the field menu: the moved label sprites blinked; the bottom screen's sprite copy
+SPRITE_ROWS = {"24_naming_screen.png", "21_oak_intro_textbox.png", "25_field_menu.png"}    # (not the field menu: the moved label sprites blinked; the bottom screen's sprite copy
                        # comes at times the theme can't follow)
 for sc_, sc in screens.items():
     f_ = CAPS + 'am_' + MATCH[sc_] + '.vram2'

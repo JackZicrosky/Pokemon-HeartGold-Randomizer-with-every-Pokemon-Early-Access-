@@ -1057,14 +1057,22 @@ static void ObjCopies(u32 offset, u32 size)
     static u32 sCalls, sTilesFrame = 0xFFFFFFFF;
     if (sObjCopyCount == 0)
         return;
+    if (offset != 0xFFFFFFFF)          // (a copy to the other screen's sprites than every copy's: nothing to do - the
+    {                                  // overworld copies its sprites hundreds of times a frame, the field menu's
+        u32 e = offset >= 0x400;       // label moves are the sub screen's)
+        for (n = 0; n < sObjCopyCount && (sObjCopies[n].w[0] & 1) != e; n++)
+            ;
+        if (n == sObjCopyCount)
+            return;
+    }
     if (sObjDone != sFrame)
     {
         sObjDone = sFrame;
         sCalls = 0;
     }
-    // (offset 0xFFFFFFFF: RegTask, every vertical blank; 0x400+: the sub screen's own copy, GXS_LoadOAM: always)
-    if (offset < 0x400 && sCalls++ >= 16)
-        return;
+    // (offset 0xFFFFFFFF: RegTask, every vertical blank; every copy of the game's sprites, each pass only over the
+    // sprites that copy wrote: below)
+    sCalls++;
     // (the game animates the tiles: the copy follows at the first sprite copy of each frame - not at every one: the bag
     // copies its sprites many times a frame, the tile copies made it lag and drop button presses)
     if (offset != 0xFFFFFFFF && sTilesFrame != sFrame)
@@ -1077,9 +1085,19 @@ static void ObjCopies(u32 offset, u32 size)
         u32 w0 = sObjCopies[n].w[0], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1, src = w0 >> 16 & 1023;
         u32 dst = sObjCopies[n].w[1] & 1023, lo = eng ? 128 : 0, hi = lo + 128;
         vu16 *oam = (vu16 *)0x07000000;
-        (void)offset; (void)size;        // (the whole engine's OAM: the sub screen's copies don't come through here)
         if (!sObjCopies[n].mine)
             continue;
+        // (a copy of the game's sprites: only the sprites it wrote - offset / size in bytes, the sub screen's from
+        // 0x400 - not the whole OAM: the Oak intro copies single sprites to the sub screen many times a frame, the
+        // whole-OAM pass for every copy starved the game; RegTask's pass, offset 0xFFFFFFFF: all)
+        if (offset != 0xFFFFFFFF)
+        {
+            u32 a = offset / 8, b = (offset + size + 7) / 8;
+            if (a > lo)
+                lo = a;
+            if (b < hi)
+                hi = b;
+        }
         if (w0 >> 9 & 1)
         {
             // Translucent sprites (w0 bit 9): the game blends them over the screen's background (the Pokedex list's
