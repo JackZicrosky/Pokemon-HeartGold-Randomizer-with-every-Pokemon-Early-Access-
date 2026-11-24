@@ -438,6 +438,34 @@ for k in sys.argv[3:]:
         while bb >= 0 and not (bb < int.from_bytes(ram[bb + 4:bb + 8], 'little') - 0x02000000 < bb + 0x10000):
             bb = ram.find(b'RHTB', bb + 1)
         print('blob', hex(0x02000000 + bb), [(o, hex(int.from_bytes(ram[bb + int(o, 16):bb + int(o, 16) + 4], 'little'))) for o in k[5:].split(',')])
+    elif k.startswith('sigs:'):                   # sigs:N  N frames: the screen fingerprint and the page shown, per frame
+        j = sig_addr()
+        out_ = []
+        for _ in range(int(k[5:])):
+            h.run(1)
+            out_.append('%08x/%08x' % (h.emu.memory.unsigned.read_long(j + 4), h.emu.memory.unsigned.read_long(j + 8)) if j else '-')
+        print('sigs', ' '.join(out_))
+    elif k.startswith('pcs:'):                    # pcs:N  N frames: where the CPU is at each frame's end (histogram)
+        import collections as _c
+        hist = _c.Counter()
+        for _ in range(int(k[4:])):
+            h.run(1)
+            hist[h.emu.memory.register_arm9.pc >> 6 << 6] += 1
+        print('pcs', ' '.join('%x:%d' % kv for kv in hist.most_common(25)))
+    elif k.startswith('dbg:'):                    # dbg:N  test builds: switch parts of the AMOLED theme off (gRhScreenSig.dbg)
+        j = sig_addr()
+        if j:
+            for i_, v_ in enumerate(int(k[4:]).to_bytes(4, 'little')):
+                h.emu.memory.write_byte(j + 20 + i_, v_)
+    elif k.startswith('calls:'):                  # calls:N  N frames: sprite copies per frame (count, bytes) - test builds
+        j = sig_addr(); out_ = []
+        for _ in range(int(k[6:])):
+            h.run(1)
+            v_ = h.emu.memory.unsigned.read_long(j + 24) if j else 0
+            out_.append('%d/%d' % (v_ & 4095, v_ >> 12))
+        print('calls', ' '.join(out_))
+    elif k == 'pos':                              # the player's map and tile (lag test: the same walk, fewer tiles)
+        print('pos', play.player(m))
     elif k == 'heap0':                            # gRhHeap0 (src/rh_theme.c, test builds): heap 0 free, lowest seen
         ram = bytes(h.emu.memory.read(0x023D8000, 0x023DFFFF, 1, False)); j = ram.find(b'RHH0'); got = None
         while j >= 0:                             # (the struct: two sizes follow; the code's literal: addresses)

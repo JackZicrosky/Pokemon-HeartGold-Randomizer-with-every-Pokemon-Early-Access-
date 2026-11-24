@@ -57,9 +57,11 @@ def sample_rha4() -> datafiles.Rha4:
 
 
 def sample_rhpg() -> datafiles.Rhpg:
-    pg = datafiles.Page(pairs=[(1, 2)], vpatch=[0x0620EF30, 5], ipatch=[207 << 16 | 0x2646], regs=[0x50 << 16 | 1],
-                        rules=[datafiles.RowRule(1 | 2 << 24, 0x1F | 0b111 << 16, [1, 2, 3, 0])], objc=[(3, 4)])
-    return datafiles.Rhpg(sigs=[(0x10, 0), (0x20, 0x80000000 | 12), (0x30, 0)], rows=[tuple(range(16))],
+    rows = [tuple(range(16)), tuple(range(16, 32))]
+    pg = datafiles.Page(pairs=[(0, 1)], vpatch=[0x0620EF30, 5], ipatch=[207 << 16 | 0x2646], regs=[0x50 << 16 | 1],
+                        rules=[datafiles.RowRule(1 | 2 << 24, 0x1F | 0b111 << 16, [1, 2, 3, 0])], objc=[(3, 4)],
+                        rows_inline=struct.pack('<32H', *range(32)))
+    return datafiles.Rhpg(sigs=[(0x10, 0), (0x20, 0x80000000 | 12), (0x30, 0)], rows=rows,
                           pages={0x10: pg, 0x30: datafiles.Page()}, fuzzy=[(0x10, 7) + (0x9070,) * 48])
 
 
@@ -104,9 +106,11 @@ def test_validation_catches_bad_data():
     assert any("mask" in p for p in datafiles.validate_rha4(f))
     g = sample_rhpg()
     g.pages[0x10].ipatch.append(1024 << 16)
+    g.pages[0x10].rows_inline = bytes(64)
     g.pages[0x30].vpatch = [0] * (datafiles.MAX_TILE_PATCHES + 1)
     probs = datafiles.validate_rhpg(g)
     assert any("1024" in p for p in probs) and any("tile patches" in p for p in probs)
+    assert any("inline rows" in p for p in probs)
 
 
 @pytest.mark.parametrize("which", [0, 1])

@@ -94,10 +94,17 @@ void RH_PaletteData_FreeBuffers(void *plttData, u32 bufferId)
 u32 GetBuf(u32 idx, BOOL faded)          // (also called by the battle overlay: src/battle/rh_hptext.c)
 {
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
-    u32 i, id = sBufFor[idx >> 8], off = idx & 255;
+    static u8 sLast[4];                      // (the buffer found last per palette: tried first - a search through every
+    u32 i, id = sBufFor[idx >> 8], off = idx & 255;   // buffer for each entry each frame made fades run at half speed)
+    i = sLast[idx >> 8];
+    if (i < PG_MAX_BUFS && BufLive(i) && sBufs[i].id == id && off * 2 < sBufs[i].size)
+        return ((u16 *)(faded ? sBufs[i].faded : sBufs[i].unfaded))[off];
     for (i = 0; i < PG_MAX_BUFS; i++)
         if (BufLive(i) && sBufs[i].id == id && off * 2 < sBufs[i].size)
+        {
+            sLast[idx >> 8] = (u8)i;
             return ((u16 *)(faded ? sBufs[i].faded : sBufs[i].unfaded))[off];
+        }
     return ((vu16 *)0x05000000)[idx];
 }
 
@@ -202,7 +209,7 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
             ((void (*)(void))hp[3])();
     }
     if (sBlob != NULL && RHCT_UiTheme() == RH_THEME_AMOLED)
-        sBlob->oam(offset, size);
+        sBlob->oam(offset, size, (u16 *)src);
 }
 
 void RH_LoadOamCopy(const u32 *src, u32 offset, u32 size)

@@ -831,9 +831,10 @@ for sc_, sc in screens.items():
 # game's colour, the owner's instead (row rules keyed on the entry itself). Oak's boy / girl cards: the unselected
 # card's frame, grey (27,28,28), black in the owner's picture; the selected card's red is the game's (either card).
 # (block, row mask, key entry, game colour, [owner colour], entry mask)
-# (Oak's boy / girl cards: the unselected card's frame grey (27,28,28), black in the owner's picture - off: the game
-# writes that colour every frame, the rule's black and the game's grey alternated: flicker)
-MANUAL_RULES = {}
+# Oak's boy / girl cards: the unselected card's frame grey (27,28,28), black in the owner's picture; the selected red
+# is the game's (either card). The game writes that colour every frame: the rule also runs after the game's
+# vertical-blank callback (rhtheme/ ThemeOam), else the two alternated
+MANUAL_RULES = {'22_oak_boy_girl_choice.png': [(2, 1, e, 27 | 28 << 5 | 28 << 10, [0], 1 << e) for e in (13, 15)]}
 for sc_, rl_ in MANUAL_RULES.items():
     if sc_ in screens:
         screens[sc_]['rules'] = screens[sc_].get('rules', []) + rl_
@@ -841,6 +842,8 @@ for sc_, rl_ in MANUAL_RULES.items():
 # sprite palette moves (rhtheme/ ObjCopies, tile count 0): a sprite whose pixels the owner coloured differently from
 # what its palette row's entries give on the screen (the field menu's "A CHECK" label on the red CHECK button: the same
 # entries) gets a free OBJ palette row of its own, a copy of its row with the owner's colours
+_SZ = {(0, 0): (8, 8), (0, 1): (16, 16), (0, 2): (32, 32), (0, 3): (64, 64), (1, 0): (16, 8), (1, 1): (32, 8), (1, 2): (32, 16),
+       (1, 3): (64, 32), (2, 0): (8, 16), (2, 1): (8, 32), (2, 2): (16, 32), (2, 3): (32, 64)}
 SPRITE_ROWS = {"24_naming_screen.png", "21_oak_intro_textbox.png", "25_field_menu.png"}    # (not the field menu: the moved label sprites blinked; the bottom screen's sprite copy
                        # comes at times the theme can't follow)
 for sc_, sc in screens.items():
@@ -855,7 +858,9 @@ for sc_, sc in screens.items():
     fin = {i_: dsrender.colour(vb, i_) & 0x7FFF for i_ in range(1024)}
     fin.update({i_: c_ for i_, c_ in sc.get('ipatch', []) if c_ < 0x80000000})
     want_s = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
+    pix_s = collections.defaultdict(list)
     bad_s = collections.Counter()
+    taken_obj = collections.defaultdict(list)       # (engine) -> [(start, end)] OBJ VRAM bytes given to copies
     for half in (0, 1):
         if fit_[half] < 0.95:
             continue
@@ -870,6 +875,7 @@ for sc_, sc in screens.items():
                 ow = own5(o_.getpixel((x_, Y)))
                 key = (half, q['oam'])
                 want_s[key][q['idx']][ow] += 1
+                pix_s[key].append((q.get('vram'), q.get('half'), q['idx'], ow))
                 if fin.get(q['idx']) != ow:
                     bad_s[key] += 1
     eng_of = {h_: (dsrender.ENGINES[0][h_]) for h_ in (0, 1)}
@@ -905,6 +911,72 @@ for sc_, sc in screens.items():
         sc.setdefault('objcopy', []).append((eng_ | pal_ << 4 | (a2 & 1023) << 16, nr | ((a1 & 511) + 1) << 4))
         ipstat['sprite palette moves'] += 1
         print('sprite palette move', sc_, 'oam', k_, 'tile', a2 & 1023, 'palette', pal_, '->', nr)
+        # pixels of the sprite the moved row still can't colour (one entry, two colours in the owner's picture: a
+        # label's box ending inside a tile the button's background also fills): the sprite gets a copy of its tiles
+        # with those pixels on spare entries of the moved row (rhtheme/ ObjCopyTiles pixel patches)
+        rowc = {j_: ip_[base0 + nr * 16 + j_] for j_ in range(16)}
+        need = [(v_, h_, i_, w_) for v_, h_, i_, w_ in pix_s[(half, k_)] if v_ is not None and h_ is not None
+                and i_ // 16 == base_ // 16 and rowc[i_ % 16] != w_]
+        if os.environ.get('NOPIX'):
+            need = []
+        if not need:
+            continue
+        io_ = vb[0x70:0xE0] if eng_ else vb[0:0x70]
+        sh_ = 5 + (int.from_bytes(io_[0:4], 'little') >> 20 & 3)
+        obase, ooff, osize = (0x06600000, dsrender.O_OBJS, 0x20000) if eng_ else (0x06400000, dsrender.O_OBJM, 0x40000)
+        w__, h__ = _SZ[(a0 >> 14, a1 >> 14)]
+        nt = w__ * h__ // 64
+        src_a = obase + ((a2 & 1023) << sh_)
+        tdata = vb[ooff + (src_a - obase):ooff + (src_a - obase) + nt * 32]
+        used_e = {b_ & 15 for b_ in tdata} | {b_ >> 4 for b_ in tdata} | {0}
+        spare_ = {}
+        ok_ = True
+        for w_ in sorted({w_ for _, _, _, w_ in need}):
+            fr_ = [j_ for j_ in range(15, 0, -1) if j_ not in used_e and j_ not in spare_.values()]
+            if not fr_:
+                ok_ = False; break
+            spare_[w_] = fr_[0]
+        if not ok_:
+            ipstat['sprite pixel copy: no spare entry'] += 1; continue
+        # a free place for the copy: just above every sprite's tiles, empty in the capture
+        ranges = []
+        for q_ in range(128):
+            b0, b1, b2 = (int.from_bytes(oam_[q_ * 8 + 2 * w_:q_ * 8 + 2 * w_ + 2], 'little') for w_ in range(3))
+            if (b0 & 0x300) == 0x200:
+                continue
+            sw, shh = _SZ[(b0 >> 14, b1 >> 14)]
+            st = (b2 & 1023) << sh_
+            ranges.append((st, st + sw * shh // 2))
+        ranges += taken_obj[eng_]
+        t_ = (max(e_ for _, e_ in ranges) + (1 << sh_) - 1) >> sh_
+        while t_ < 1024 and ((t_ << sh_) + nt * 32 > osize or any(vb[ooff + (t_ << sh_):ooff + (t_ << sh_) + nt * 32])
+                             or any(a_ < (t_ << sh_) + nt * 32 and (t_ << sh_) < b_ for a_, b_ in ranges)):
+            t_ += 1
+        if t_ >= 1024 or nt * 8 > 1024:
+            ipstat['sprite pixel copy: no free tiles'] += 1; continue
+        taken_obj[eng_].append((t_ << sh_, (t_ << sh_) + nt * 32))
+        for w_, j_ in spare_.items():
+            ip_[base0 + nr * 16 + j_] = w_
+        sc['ipatch'] = sorted(ip_.items())
+        cps_ = [(eng_ | nr << 4 | (a1 >> 13 & 1) << 8 | (a2 & 1023) << 16, t_ | nt << 16)]
+        seen_, pts_ = set(), []
+        for v_, h_, i_, w_ in need:
+            off_ = v_ - src_a
+            if not 0 <= off_ < nt * 32 or (off_, h_) in seen_:
+                continue
+            seen_.add((off_, h_))
+            pts_.append((off_ // 4, (off_ % 4) * 2 + h_, spare_[w_]))
+        pts_.sort()                                # (by word: rhtheme/ ObjCopyTiles applies them in one pass)
+        for p_ in range(0, len(pts_), 2):          # (two per entry: rhtheme/ ObjCopyTiles)
+            wd, px, val = pts_[p_]
+            w0_ = 1 << 12 | eng_
+            if p_ + 1 < len(pts_):
+                wd2, px2, val2 = pts_[p_ + 1]
+                w0_ |= (wd2 | px2 << 10 | val2 << 13 | 1 << 17) << 13
+            cps_.append((w0_, wd | px << 12 | val << 16))
+        sc['objcopy'] += cps_
+        ipstat['sprite pixel copies'] += 1
+        print('sprite pixel copy', sc_, 'oam', k_, 'tiles', nt, '->', t_, 'pixels', len(cps_) - 1, 'spares', spare_)
 # flipped-sprite palette moves (rhtheme/ ObjCopies palette move, w0 bits 10 + 11): every sprite of palette row pal flipped
 # as vf (any tile) goes to a free row: a copy of row pal with the owner's colours for the entries listed. The Mart list's
 # selected-item frame: its bottom half is its top half upside down, the owner's bottom edge darker (entries 11, 12, 15).
@@ -974,6 +1046,56 @@ for sc_, (eng_, pal_, vf_, frm_, to_, dst_) in OBJ_COPIES.items():
     screens[sc_]['ipatch'] = [(i_, c_) for i_, c_ in screens[sc_].get('ipatch', []) if i_ != base_ + to_] + [(base_ + to_, col_)]
     ipstat['sprite copies'] += len(cps)
     print('sprite copies', sc_, [(hex(a), hex(b)) for a, b in cps], 'colour', (col_ & 31, col_ >> 5 & 31, col_ >> 10 & 31))
+# overlay sprites (overlay.py -> overlays.json, made from the AMOLED recordings): their tile words, sprites and palette row
+if os.path.exists('overlays.json'):
+    for sc_, ov_ in json.load(open('overlays.json')).items():
+        if sc_ in screens:
+            screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [tuple(e_) for e_ in ov_['objcopy']]
+            ipd_ = dict(screens[sc_].get('ipatch', []))
+            ipd_.update({i_: c_ for i_, c_ in ov_['ipatch']})
+            screens[sc_]['ipatch'] = sorted(ipd_.items())
+            ipstat['overlay sprite entries'] += len(ov_['objcopy'])
+# scanline colours (rhtheme/ Scanlines, an H-blank DMA): one palette entry a colour per line - the options menu's
+# selected value box, the owner's gradient over its one flat colour. (screen: palette RAM entry); the box's tile, map
+# column, first line and the owner's colour per line come from the AMOLED capture and the owner's picture
+SCANLINES = {'35_options_menu.png': 11}
+for sc_, idx_ in SCANLINES.items():
+    if sc_ not in screens:
+        continue
+    vb = open(CAPS + 'am_' + MATCH[sc_] + '.vram2', 'rb').read()
+    shot_ = Image.open(CAPS + 'am_' + MATCH[sc_] + '.png').convert('RGB')
+    scr_, fit_ = dsrender.screens(vb, shot_)
+    o_ = Image.open(PA[sc_]).convert('RGB')
+    lines = collections.defaultdict(collections.Counter)
+    cell = None
+    for h_ in (0, 1):
+        for y_ in range(192):
+            for x_ in range(256):
+                q = scr_[h_][y_][x_]
+                if q and q['kind'] == 'bg' and q['idx'] == idx_:
+                    lines[(h_, y_)][own5(o_.getpixel((x_, h_ * 192 + y_)))] += 1
+                    if cell is None:
+                        cell = (h_, y_, x_, q)
+    if cell is None:
+        continue
+    h_, y0_, x0_, q0 = cell
+    eng_ = dsrender.ENGINES[0][h_]
+    me = int.from_bytes(vb[dsrender.O_BGM + q0['map'] - 0x06000000:][:2] if q0['map'] < 0x06200000
+                        else vb[dsrender.O_BGS + q0['map'] - 0x06200000:][:2], 'little')
+    ys = sorted(y for (hh, y) in lines if hh == h_)
+    first, last = ys[0], ys[-1]
+    off_ = first - (first // 8) * 8
+    cols_ = [lines[(h_, y)].most_common(1)[0][0] for y in range(first, last + 1)]
+    ents = [(1 << 13 | eng_ | q0['layer'] << 1 | (x0_ // 8) << 16 | off_ << 21,
+             idx_ % 256 + (512 if eng_ else 0) * 0 + (idx_ // 256) * 256 | (me & 1023) << 10 | (me >> 12) << 20 | len(cols_) << 24)]
+    cols2 = cols_ + [cols_[-1]] * (len(cols_) & 1)
+    for p_ in range(0, len(cols2), 2):
+        ents.append((1 << 13 | 1 << 3 | cols2[p_] << 16, cols2[p_ + 1]))
+    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + ents
+    # (the box's pixels stay on that entry: no tile patches moving them to spares)
+    screens[sc_]['vpatch'] = [p for p in screens[sc_].get('vpatch', []) if not (p[2] == idx_ % 16)]
+    ipstat['scanline colour rules'] += 1
+    print('scanlines', sc_, 'entry', idx_, 'lines', first, last, 'col', x0_ // 8, 'tile', me & 1023, 'pal', me >> 12, cols_)
 for sc_, rules_ in TRANSLUCENT.items():
     if sc_ in screens:
         screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [

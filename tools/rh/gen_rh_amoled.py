@@ -427,6 +427,7 @@ def pages(loaded):
     data = bytearray()
     offs = []
     base_off = 16 + 8 * len(sigs) + 32 * len(rows)
+    rowlist = [r for r, _ in sorted(rows.items(), key=lambda kv: kv[1])]
     for sg in sigs:
         if sg in marks:
             offs.append(marks[sg])
@@ -450,6 +451,9 @@ def pages(loaded):
             data += struct.pack('<II', mask | blk << 16 | key << 24, kc | emask << 16) + struct.pack('<%dH' % len(cols), *cols)
         oc = objc.get(sg, [])
         data += struct.pack('<I', len(oc)) + b''.join(struct.pack('<II', a, b) for a, b in oc)
+        # the pairs' rows inline (both rows of each pair, 64 bytes): one read when the screen shows (a seek and read
+        # per row cost frames - rhtheme/ ShowScreen)
+        data += b''.join(struct.pack('<16H', *rowlist[a]) + struct.pack('<16H', *rowlist[b]) for a, b in pairs)
     # the fuzzy list (src: tools/rh/amoled/sigpy.py fuzzy, rhtheme/ FuzzyFind): per learned screen its fingerprint
     # (the shared one of a screen in versions), layer setup and map region hashes
     # (one entry per learned screen state: the states of a family / a screen in versions all lead to the shared one)

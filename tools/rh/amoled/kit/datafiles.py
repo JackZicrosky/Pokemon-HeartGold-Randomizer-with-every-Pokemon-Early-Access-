@@ -11,7 +11,8 @@ RHPG (data/rh/rh_amoled_pages.bin): per-screen pages
   'RHPG', u32 nsigs, u32 nrows, u32 fuzzy_offset
   nsigs x { u32 sig, u32 offset }                      (offset bit 31 set: a screen-version marker, no page)
   nrows x 16 u16                                        (whole palette rows)
-  pages, in sig order: pairs, tile patches, index patches, registers, row rules, sprite copies (see Page)
+  pages, in sig order: pairs, tile patches, index patches, registers, row rules, sprite copies, the pairs'
+  rows inline (64 bytes per pair) (see Page)
   u32 nfuzzy, nfuzzy x { u32 sig, u32 cfg, 48 u16 region hashes }
 """
 from __future__ import annotations
@@ -111,6 +112,7 @@ class Page:
     regs: list[int] = field(default_factory=list)         # register writes: addr << 16 | value
     rules: list[RowRule] = field(default_factory=list)
     objc: list[tuple[int, int]] = field(default_factory=list)
+    rows_inline: bytes = b""                               # both rows of each pair, 64 bytes per pair (one read)
 
 
 @dataclass
@@ -160,6 +162,9 @@ def parse_rhpg(buf: bytes) -> Rhpg:
             pg.rules.append(RowRule(w0, w1, list(struct.unpack_from(f"<{n}H", buf, p))))
             p += 2 * n
         pg.objc = [(u32(), u32()) for _ in range(u32())]
+        _need(buf, p + 64 * len(pg.pairs), "inline rows")
+        pg.rows_inline = bytes(buf[p:p + 64 * len(pg.pairs)])
+        p += 64 * len(pg.pairs)
         sigs.append((sg, 0))
         pages[sg] = pg
     if p != fzoff:
@@ -192,6 +197,9 @@ def write_rhpg(f: Rhpg) -> bytes:
         for r in pg.rules:
             data += struct.pack("<II", r.w0, r.w1) + struct.pack(f"<{len(r.cols)}H", *r.cols)
         data += struct.pack("<I", len(pg.objc)) + b"".join(struct.pack("<II", a, b) for a, b in pg.objc)
+        if len(pg.rows_inline) != 64 * len(pg.pairs):
+            raise FormatError(f"{sg:#x}: inline rows {len(pg.rows_inline)} bytes for {len(pg.pairs)} pairs")
+        data += pg.rows_inline
     out = bytearray(b"RHPG" + struct.pack("<III", len(f.sigs), len(f.rows), base + len(data)))
     for (sg, _), off in zip(f.sigs, offs):
         out += struct.pack("<II", sg, off)
@@ -219,6 +227,13 @@ def validate_rhpg(f: Rhpg) -> list[str]:
             if v >> 16 >= 1024:
                 out.append(f"{sg:#x}: palette index {v >> 16} beyond the 1024 2D palette entries")
                 break
+    for sg, pg in f.pages.items():
+        for k, (a, b) in enumerate(pg.pairs):
+            if a < len(f.rows) and b < len(f.rows):
+                want = struct.pack("<16H", *f.rows[a]) + struct.pack("<16H", *f.rows[b])
+                if pg.rows_inline[64 * k:64 * k + 64] != want:
+                    out.append(f"{sg:#x}: inline rows of pair {k} differ from the row list")
+                    break
     for sg, mark in f.sigs:
         if mark and (mark & 0x7FFFFFFF) >= 1024:
             out.append(f"{sg:#x}: version key entry {mark & 0x7FFFFFFF} out of range")
