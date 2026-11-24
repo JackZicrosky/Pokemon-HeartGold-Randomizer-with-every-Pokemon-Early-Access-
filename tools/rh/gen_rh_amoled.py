@@ -398,6 +398,14 @@ def pages(loaded):
                 regs[a] = dict(regs.get(sc['sig'], {}))
                 if sc['sig'] in rules:
                     rules[a] = rules[sc['sig']]
+    # a screen in versions: the default version's whole page also under the default key (rhtheme/ ScreenSig: the
+    # key entry's colour is none of the versions' -> colour 0x8000)
+    for name, sc in screens.items():
+        if sc.get('vdefault') and 'base' in sc:
+            d_ = ((sc['base'] ^ 0x8000) * 16777619) & 0xFFFFFFFF
+            for tbl in (per_sig, vpatch, ipatch, regs, rules, objc):
+                if sc['sig'] in tbl:
+                    tbl[d_] = tbl[sc['sig']]
     # a family member's own fingerprint (tools/rh/amoled/learn.py FAMILIES): the owner's exact state, its whole page
     exacts = collections.Counter(sc.get('exact') for sc in screens.values())
     for name, sc in screens.items():

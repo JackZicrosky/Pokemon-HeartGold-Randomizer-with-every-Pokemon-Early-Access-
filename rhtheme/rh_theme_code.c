@@ -859,6 +859,8 @@ static void ThemeTask(void *task, void *data)
             v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
             if (FindPage(v) == 0 && sig == sLastBase)
                 v = sLastSig;
+            else if (FindPage(v) == 0)            // (no version's colour: the default version, the owner's
+                v = (sig ^ 0x8000) * 16777619u;   // unpressed picture - tools/rh/gen_rh_amoled.py)
         }
         sLastBase = sig;
         sig = v;

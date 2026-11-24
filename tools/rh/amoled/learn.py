@@ -76,6 +76,10 @@ KEEP_IDX = {'40_party_menu.png': set(range(256 + 3 * 16, 256 + 6 * 16)),
 TRANSLUCENT = {'28_pokedex_list.png': [(0, r, 12 + r, 0x7FFF) for r in (1, 2, 3)]}
 # screens whose cells never get a palette row copy of their own in the tile copy step
 NO_CELL_ROWS = {'52_bag_item_menu.png'}   # (its copy's 'blank' tile is the item menu window's: the game froze)
+# pictures matched to their capture (for the proof) but not learned: they show a state of a learned screen that the
+# theme's colours can't tell apart from it (73: the field menu with POKeMON pressed; as its own version of 25 the two
+# flipped - the theme's colours change the entry that tells them apart)
+LEARN_SKIP = {'73_field_menu_pokemon_pressed.png'}
 NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
@@ -83,7 +87,7 @@ NOSPARE = {(77, 3): {9, 11}, (7, 246): {2, 3, 4}}
 # screens whose best-looking capture is the wrong state (an unpressed frame looks like the pressed one...)
 # other states of a screen (captures) that use its page
 ALIAS = {'61_battle_moves.png': ['f_moves'], '72_battle_check_moves.png': ['f_checkmoves']}
-FORCE = {'25_field_menu.png': 's25', '34_save_prompt.png': 's34', '61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 'hf_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press', '73_field_menu_pokemon_pressed.png': 'y_party_press', '64_battle_party.png': 'rf4_party', '65_battle_party_menu.png': 'rf4_party_menu'}
+FORCE = {'25_field_menu.png': 's25', '34_save_prompt.png': 's34', '61_battle_moves.png': 'rm4_moves', '66_battle_command_menu.png': 'e_cmd', '67_battle_fight_pressed.png': 'e_fp0', '68_battle_bag_pressed.png': 's2_bp0', '22_oak_boy_girl_choice.png': 'n_oak18', '69_battle_bag_pocket_pressed.png': 's2_pocket_press', '73_field_menu_pokemon_pressed.png': 'y_party_press', '64_battle_party.png': 'rf4_party', '65_battle_party_menu.png': 'rf4_party_menu'}
 # the owner's pictures, and screens the owner didn't draw made from the owner's design of a sibling screen
 # (synth/: e.g. the main menu's second page from its first, the same colour for the same Default colour)
 SYN = os.path.dirname(os.path.abspath(__file__)) + '/synth/'
@@ -109,6 +113,8 @@ for name, f in sorted(PA.items()):
     if best is None or (bn > 98304 // 5 and name not in FORCE) or not os.path.exists(CAPS + 'id_' + best + '.json'):
         continue
     MATCH[name] = best
+    if name in LEARN_SKIP:
+        continue
     log = json.load(open(CAPS + 'id_' + best + '.json'))
     ids = list(Image.open(CAPS + 'id_' + best + '.png').convert('RGB').getdata())
     dcap = list(defs[best].getdata())          # the Default capture: only pixels where it shows the same frame count
@@ -672,8 +678,12 @@ for sig_, names in by_sig.items():
         screens[n_]['base'] = sig_
         screens[n_]['vkey'] = key
         screens[n_]['sig'] = ((sig_ ^ pals[n_][key]) * 16777619) & 0xFFFFFFFF
+    # the version for any other colour of the key entry (a state no picture shows, e.g. the field menu just after
+    # its overlay closes): the unpressed picture's, else the first (rhtheme/ ScreenSig: colour 0x8000)
+    dflt = next((n_ for n_ in sorted(names) if 'press' not in n_), sorted(names)[0])
+    screens[dflt]['vdefault'] = True
     ipstat['screen versions'] += 1
-    print('screen versions', names, 'entry', key)
+    print('screen versions', names, 'entry', key, 'default', dflt)
     for n_ in names:                            # (the telling entry is the game's: never patched)
         screens[n_]['ipatch'] = [(i_, c_) for i_, c_ in screens[n_].get('ipatch', []) if i_ != key]
 # screen families: the owner's pictures of one screen in states with different tile maps (the bag's pockets: each with
