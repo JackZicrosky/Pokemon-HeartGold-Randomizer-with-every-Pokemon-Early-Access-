@@ -62,11 +62,14 @@ OWNER_SLIPS = {'72_battle_check_moves.png': [((8, 195, 40, 219), (3, 3, 3))],
                '74_pokedex_search.png': [((x, y, x + 1, y + 1), (31, 31, 31)) for x, y in [(71, 328), (96, 328), (26, 366), (33, 366), (34, 366), (35, 366), (36, 366), (40, 366), (47, 366), (48, 366), (49, 366), (50, 366), (51, 366), (52, 366), (43, 367), (51, 367), (52, 367)]]}
 # Pokemon icon outlines the owner coloured differently from the game (owner: either is fine): the icon's box, pixels
 # the owner recoloured
-ICON_SLIPS = {'28_pokedex_list.png': [(24, 196, 72, 240)]}
+ICON_SLIPS = {}
 # Pokemon icons that animate (two poses): the owner's Default and AMOLED pictures caught different poses, so the box is
 # taken out of the per-moment check and proven on its own instead: some AMOLED frame of the recording must show the
 # box exactly as the owner's AMOLED picture (the icon's own colours, the pose the owner drew); its wrong pixels count
-ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)]}
+ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)], '28_pokedex_list.png': [(36, 204, 68, 236), (152, 204, 184, 236)]}
+# icons whose animation frame is fixed when the screen opens (the Pokedex list): proven against recordings that open it
+# at different moments (ICON_RECS: extra recordings searched for the owner's frame)
+ICON_RECS = {'28_pokedex_list.png': ['s28v%d' % k for k in range(8)]}
 # areas where the owner's Default and AMOLED pictures come from different moments (64/65: the wild Rattata is Lv3
 # in the Default picture, Lv4 in the AMOLED one): the level digit counts neither way
 PAIR_MISMATCH = {'64_battle_party.png': [(80, 27, 93, 37)], '65_battle_party_menu.png': [(80, 27, 93, 37)]}
@@ -146,10 +149,13 @@ for name in names:
         print('%-40s %-16s no recording' % (name, M[name])); continue
     (_, ns, nw), sit, wrong, am, cap = min(res, key=lambda r: r[0])
     for box in ICON_ANIM.get(name, []):
-        rec = load(cap, 'am')
-        ob = oa.crop(box)
-        if rec:
-            nw += min(count(neq(ob, rec[1](i).crop(box))) for i in range(rec[0]))
+        ob = oa.crop(box); best = None
+        for rc in [cap] + ICON_RECS.get(name, []):
+            rec = load(rc, 'am')
+            if rec:
+                m = min(count(neq(ob, rec[1](i).crop(box))) for i in range(rec[0]))
+                best = m if best is None else min(best, m)
+        nw += best or 0
     good = ns == 0 and nw <= 9
     ok += good
     if not good:

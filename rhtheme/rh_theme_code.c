@@ -1020,7 +1020,8 @@ static void ObjCopyTiles(void)
         u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1;
         if ((w1 >> 16 & 255) == 0)                     // (a palette move: no tiles to copy)
         {
-            sObjCopies[n].mine = 1;
+            if (!sObjCopies[n].mine)                   // (2: a translucent rule's row is set, ObjCopies)
+                sObjCopies[n].mine = 1;
             continue;
         }
         u32 src = w0 >> 16 & 1023, dst = w1 & 1023, cnt = w1 >> 16 & 255, from = w1 >> 24 & 15, to = w1 >> 28 & 15;
@@ -1051,7 +1052,7 @@ static void ObjCopies(u32 offset, u32 size)
     u32 n, k;
     // (at most 16 times a frame: the overworld copies sprites hundreds of times a frame, the Mart lagged; the screen's
     // own sprite copies come in between, so not just once)
-    static u32 sCalls;
+    static u32 sCalls, sTilesFrame = 0xFFFFFFFF;
     if (sObjCopyCount == 0)
         return;
     if (sObjDone != sFrame)
@@ -1062,8 +1063,13 @@ static void ObjCopies(u32 offset, u32 size)
     // (offset 0xFFFFFFFF: RegTask, every vertical blank; 0x400+: the sub screen's own copy, GXS_LoadOAM: always)
     if (offset < 0x400 && sCalls++ >= 16)
         return;
-    if (offset != 0xFFFFFFFF)
-        ObjCopyTiles();                // (the game animates the tiles: the copy follows at once)
+    // (the game animates the tiles: the copy follows at the first sprite copy of each frame - not at every one: the bag
+    // copies its sprites many times a frame, the tile copies made it lag and drop button presses)
+    if (offset != 0xFFFFFFFF && sTilesFrame != sFrame)
+    {
+        sTilesFrame = sFrame;
+        ObjCopyTiles();
+    }
     for (n = 0; n < sObjCopyCount; n++)
     {
         u32 w0 = sObjCopies[n].w[0], eng = w0 & 1, pal = w0 >> 4 & 15, vf = w0 >> 8 & 1, src = w0 >> 16 & 1023;
@@ -1072,14 +1078,55 @@ static void ObjCopies(u32 offset, u32 size)
         (void)offset; (void)size;        // (the whole engine's OAM: the sub screen's copies don't come through here)
         if (!sObjCopies[n].mine)
             continue;
+        if (w0 >> 9 & 1)
+        {
+            // Translucent sprites (w0 bit 9): the game blends them over the screen's background (the Pokedex list's
+            // seen-only Pokemon: pale over the Default theme's white cells, dark over the owner's black ones). Sprites
+            // of palette row pal in translucent mode are drawn solid with row dst, which holds row pal's colours
+            // blended as the game would over the Default background colour (w0 >> 16), with the game's own blend
+            // weights: the owner's pale icon for any Pokemon, and row pal stays the game's for solid sprites.
+            u32 base = eng ? 768 : 256, bg = w0 >> 16 & 0x7FFF, e, ch;
+            u32 ab = *(vu16 *)(eng ? 0x04001052 : 0x04000052), eva = ab & 31, evb = ab >> 8 & 31;
+            if (eva > 16) eva = 16;
+            if (evb > 16) evb = 16;
+            // (the blended row: when the screen appears, then once per frame, in the vertical blank - not after
+            // every sprite copy: 15 buffer lookups each made the Pokedex lag)
+            if (sObjCopies[n].mine == 2 && offset != 0xFFFFFFFF)
+                e = 16;
+            else
+                e = 1, sObjCopies[n].mine = 2;
+            for (; e < 16; e++)
+            {
+                u32 c = GetIndex(base + pal * 16 + e) & 0x7FFF, out = 0, old = GetIndex(base + dst * 16 + e);
+                for (ch = 0; ch < 15; ch += 5)
+                {
+                    u32 v = ((c >> ch & 31) * eva + (bg >> ch & 31) * evb) >> 4;
+                    out |= (v > 31 ? 31 : v) << ch;
+                }
+                if ((old & 0x7FFF) != out)
+                    SetIndexKeepFade(base + dst * 16 + e, out, old);
+            }
+            for (k = lo; k < hi; k++)
+            {
+                vu16 *e2 = oam + k * 4;
+                if ((e2[0] & 0x300) != 0x200 && (e2[0] >> 10 & 3) == 1 && (e2[2] >> 12) == pal)
+                {
+                    e2[0] = (u16)(e2[0] & ~0x0C00);
+                    e2[2] = (u16)((e2[2] & 0x0FFF) | (dst & 15) << 12);
+                }
+            }
+            continue;
+        }
         if ((sObjCopies[n].w[1] >> 16 & 255) == 0)     // (a palette move: the sprite of that tile to palette dst)
         {
             u32 x1 = sObjCopies[n].w[1] >> 4 & 1023;   // (1 + the sprite's x, 0: any: sprites sharing tiles)
             for (k = lo; k < hi; k++)
             {
                 vu16 *e = oam + k * 4;
-                if ((e[0] & 0x300) != 0x200 && (e[2] & 1023) == src && (e[2] >> 12) == pal
-                    && (x1 == 0 || (e[1] & 511) + 1 == x1))
+                // (w0 bit 10: only sprites flipped as w0 bit 8 says - the Mart's selected-item frame, its bottom half
+                // the top half upside down, the owner's bottom edge darker; bit 11: sprites of any tile)
+                if ((e[0] & 0x300) != 0x200 && ((w0 >> 11 & 1) || (e[2] & 1023) == src) && (e[2] >> 12) == pal
+                    && (x1 == 0 || (e[1] & 511) + 1 == x1) && (!(w0 >> 10 & 1) || (e[1] >> 13 & 1) == vf))
                     e[2] = (u16)((e[2] & 0x0FFF) | (dst & 15) << 12);
             }
             continue;

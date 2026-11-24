@@ -67,7 +67,15 @@ def solid_tile(dump, addr):
 # species). The party sub-menu dims the screen with the brightness effect, which the theme turns off; the icons then
 # show their own colours as in the owner's picture. Learning them from the picture went wrong: the icons animate, the
 # owner's picture and the capture show different poses one pixel apart, so the outline entry got the panel's green.
-KEEP_IDX = {'40_party_menu.png': set(range(256 + 3 * 16, 256 + 6 * 16))}
+KEEP_IDX = {'40_party_menu.png': set(range(256 + 3 * 16, 256 + 6 * 16)),
+            # the Pokedex list: the icons' rows (main OBJ 1-3) are the game's; seen-only icons via TRANSLUCENT
+            '28_pokedex_list.png': set(range(256 + 1 * 16, 256 + 4 * 16))}
+# translucent sprites drawn solid with a blended copy of their palette row (rhtheme/rh_theme_code.c ObjCopies, w0 bit
+# 9): (engine, sprite row, spare row for the blend, Default background colour under them). The Pokedex list's
+# seen-only Pokemon icons blend 6:10 over the list cell (white in Default); the owner drew them pale on black.
+TRANSLUCENT = {'28_pokedex_list.png': [(0, r, 12 + r, 0x7FFF) for r in (1, 2, 3)]}
+# screens whose cells never get a palette row copy of their own in the tile copy step
+NO_CELL_ROWS = {'52_bag_item_menu.png'}   # (its copy's 'blank' tile is the item menu window's: the game froze)
 NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
@@ -483,6 +491,7 @@ for sc in screens:
         final = {i: dsrender.colour(b, i) & 0x7FFF for i in range(1024)}
         final.update(dict(ip)); final_set = {i for i, _ in ip}
         copy_made = {}
+        cell_rows, cell_spare, cell_used = {}, {}, {}
         for maddr in sorted(cellpx):
             pts = cellpx[maddr]
             ents = cellw[maddr]
@@ -527,6 +536,55 @@ for sc in screens:
                 off = v - tbase
                 new[off] = (new[off] & 0xF0) | e if h == 0 else (new[off] & 0x0F) | e << 4
                 changed = True
+            cell_row = None
+            if not ok and sc not in NO_CELL_ROWS:
+                # no spare entry in the cell's row (every entry drawn somewhere on the screen: a leader's portrait,
+                # its whites and its frame on one entry): the cell gets a copy of its row in a free palette row, where
+                # the entries its tile doesn't use are spares. Cells of the same row share such a copy while their
+                # tiles leave the spares alone
+                base_new = bytearray(rd(tbase, 32))
+                for k in range(64):
+                    tp = tpatch.get((tbase + k // 2, k & 1))
+                    if tp is not None and (base_new[k // 2] >> (4 * (k & 1)) & 15) == tp[0]:
+                        base_new[k // 2] = (base_new[k // 2] & (0xF0 if k & 1 == 0 else 0x0F)) | tp[1] << (4 * (k & 1))
+                U = {base_new[k // 2] >> (4 * (k & 1)) & 15 for k in range(64)}
+                needs = {w for v, h, idx, w in pts if final.get(row | (idx & 15)) != w
+                         and next((j for j in range(1, 16) if final.get(row | j) == w), None) is None}
+                eb_ = row & ~255
+                pick = None
+                for R in cell_rows.get(row, []):
+                    sp = cell_spare[R]
+                    if U & set(sp.values()):
+                        continue
+                    freej = [j for j in range(15, 0, -1) if j not in cell_used[R] | U | set(sp.values())]
+                    if len([w for w in needs if w not in sp]) <= len(freej):
+                        pick = R; break
+                if pick is None:
+                    freer = [r_ for r_ in range(1, 16) if (eb_ // 16 + r_) not in shown_rows and (eb_ // 16 + r_) not in taken_rows
+                             and (eb_ // 16 + r_) not in rowfile]
+                    if freer and len(needs) <= len([j for j in range(1, 16) if j not in U]):
+                        pick = eb_ // 16 + freer[0]; taken_rows.add(pick)
+                        cell_rows.setdefault(row, []).append(pick); cell_spare[pick] = {}; cell_used[pick] = set()
+                        for j in range(16):
+                            ip.append((pick * 16 + j, final.get(row | j, 0))); final[pick * 16 + j] = final.get(row | j, 0)
+                        ipstat['tile copy: cell rows'] += 1
+                if pick is not None:
+                    sp = cell_spare[pick]
+                    for w in sorted(needs):
+                        if w not in sp:
+                            j = next(j for j in range(15, 0, -1) if j not in cell_used[pick] | U | set(sp.values()))
+                            sp[w] = j; ip.append((pick * 16 + j, w)); final[pick * 16 + j] = w
+                    cell_used[pick] |= U
+                    new = base_new
+                    for v, h, idx, w in pts:
+                        if final.get(row | (idx & 15)) == w:
+                            continue
+                        e = next((j for j in range(1, 16) if final.get(row | j) == w), None)
+                        if e is None:
+                            e = sp[w]
+                        off = v - tbase
+                        new[off] = (new[off] & 0xF0) | e if h == 0 else (new[off] & 0x0F) | e << 4
+                    ok = changed = True; cell_row = pick - eb_ // 16
             if not ok:
                 ipstat['tile copy: no spare entry'] += 1; continue
             if not changed:
@@ -573,6 +631,10 @@ for sc in screens:
                     if val:
                         vp.append((naddr + k // 2, k & 1, 0, val))
             nentry = (entry & ~0x3FF) | ntile
+            if cell_row is not None:
+                nentry = (nentry & 0x0FFF) | cell_row << 12
+                if own_row is not None:              # (the cell's map patch gives way to its own row copy)
+                    vp[:] = [p_ for p_ in vp if not (p_[0] == maddr + 1 and p_[1] == 1)]
             for k in range(4):
                 a_, b_ = entry >> (4 * k) & 15, nentry >> (4 * k) & 15
                 if a_ != b_:
@@ -755,10 +817,19 @@ for sc_, sc in screens.items():
         print('row rule', sc_, 'block', blk, 'rows', sorted(grp + sib), 'key entry', key)
     if rules:
         sc['rules'] = rules
+# colours the game writes while the screen runs (not in its palette files, so never learned): when the entry shows the
+# game's colour, the owner's instead (row rules keyed on the entry itself). Oak's boy / girl cards: the unselected
+# card's frame, grey (27,28,28), black in the owner's picture; the selected card's red is the game's (either card).
+# (block, row mask, key entry, game colour, [owner colour], entry mask)
+MANUAL_RULES = {'22_oak_boy_girl_choice.png': [(2, 1, e, 27 | 28 << 5 | 28 << 10, [0], 1 << e) for e in (13, 15)]}
+for sc_, rl_ in MANUAL_RULES.items():
+    if sc_ in screens:
+        screens[sc_]['rules'] = screens[sc_].get('rules', []) + rl_
+        ipstat['row rules'] += len(rl_)
 # sprite palette moves (rhtheme/ ObjCopies, tile count 0): a sprite whose pixels the owner coloured differently from
 # what its palette row's entries give on the screen (the field menu's "A CHECK" label on the red CHECK button: the same
 # entries) gets a free OBJ palette row of its own, a copy of its row with the owner's colours
-SPRITE_ROWS = set()    # (off: on the field menu the moved label sprites blinked; the bottom screen's sprite copy
+SPRITE_ROWS = {"24_naming_screen.png"}    # (not the field menu: the moved label sprites blinked; the bottom screen's sprite copy
                        # comes at times the theme can't follow)
 for sc_, sc in screens.items():
     f_ = CAPS + 'am_' + MATCH[sc_] + '.vram2'
@@ -822,6 +893,31 @@ for sc_, sc in screens.items():
         sc.setdefault('objcopy', []).append((eng_ | pal_ << 4 | (a2 & 1023) << 16, nr | ((a1 & 511) + 1) << 4))
         ipstat['sprite palette moves'] += 1
         print('sprite palette move', sc_, 'oam', k_, 'tile', a2 & 1023, 'palette', pal_, '->', nr)
+# flipped-sprite palette moves (rhtheme/ ObjCopies palette move, w0 bits 10 + 11): every sprite of palette row pal flipped
+# as vf (any tile) goes to a free row: a copy of row pal with the owner's colours for the entries listed. The Mart list's
+# selected-item frame: its bottom half is its top half upside down, the owner's bottom edge darker (entries 11, 12, 15).
+# (screen: engine, row, vflip, {entry: owner colour})
+FLIP_MOVES = {'54_mart_buy_list.png': (1, 7, 1, {11: 2 | 10 << 5 | 23 << 10, 12: 2 | 10 << 5 | 23 << 10,
+                                                 15: 17 | 21 << 5 | 27 << 10})}
+for sc_, (eng_, pal_, vf_, cols_) in FLIP_MOVES.items():
+    if sc_ not in screens:
+        continue
+    vb = open(CAPS + 'am_' + MATCH[sc_] + '.vram2', 'rb').read()
+    oam_ = vb[dsrender.O_OAM + 0x400 * eng_:dsrender.O_OAM + 0x400 * eng_ + 0x400]
+    used_ = {int.from_bytes(oam_[q_ * 8 + 4:q_ * 8 + 6], 'little') >> 12 for q_ in range(128)
+             if (int.from_bytes(oam_[q_ * 8:q_ * 8 + 2], 'little') & 0x300) != 0x200}
+    base0 = 768 if eng_ else 256
+    ipd = dict(screens[sc_].get('ipatch', []))
+    free_ = [r_ for r_ in range(15, 0, -1) if r_ not in used_ and not any(base0 + r_ * 16 + j_ in ipd for j_ in range(16))]
+    if not free_:
+        print('flip move: no free row', sc_); continue
+    nr = free_[0]
+    for j_ in range(16):
+        ipd[base0 + nr * 16 + j_] = cols_.get(j_, ipd.get(base0 + pal_ * 16 + j_, dsrender.colour(vb, base0 + pal_ * 16 + j_) & 0x7FFF))
+    screens[sc_]['ipatch'] = sorted(ipd.items())
+    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [(eng_ | pal_ << 4 | vf_ << 8 | 1 << 10 | 1 << 11, nr)]
+    ipstat['flipped sprite moves'] += 1
+    print('flip move', sc_, 'row', pal_, '->', nr)
 # sprite copies (rhtheme/ ObjCopies): sprites drawn with the same tiles twice, flipped, the owner coloured differently
 # - the bag's selected-item frame (sub OBJ palette 9, entry 12): its bottom half (vertically flipped sprites) in the
 #   owner's darker pocket colour. Copies at free tiles 480+ (empty in every bag state captured), entry 12 -> spare 14
@@ -866,6 +962,11 @@ for sc_, (eng_, pal_, vf_, frm_, to_, dst_) in OBJ_COPIES.items():
     screens[sc_]['ipatch'] = [(i_, c_) for i_, c_ in screens[sc_].get('ipatch', []) if i_ != base_ + to_] + [(base_ + to_, col_)]
     ipstat['sprite copies'] += len(cps)
     print('sprite copies', sc_, [(hex(a), hex(b)) for a, b in cps], 'colour', (col_ & 31, col_ >> 5 & 31, col_ >> 10 & 31))
+for sc_, rules_ in TRANSLUCENT.items():
+    if sc_ in screens:
+        screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [
+            (eng_ | pal_ << 4 | 1 << 9 | bg_ << 16, dst_) for eng_, pal_, dst_, bg_ in rules_]
+        ipstat['translucent sprite rules'] += len(rules_)
 print('palette index patches:', dict(ipstat))
 json.dump(screens, open('screens.json', 'w'))
 # entries whose text pixels the owner coloured differently from other pixels: every screen (file level) gets the text's
