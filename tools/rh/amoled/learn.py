@@ -1088,6 +1088,16 @@ for sc_, idx_ in SCANLINES.items():
     # offset from the cell row's top, signed)
     mi_ = ((q0['map'] - 0x06000000) & 0x7FF) // 2
     mcol_, mrow_ = mi_ % 32, mi_ // 32
+    # (the column: the leftmost one with the box's tile in that row and nowhere above it - the theme takes the first
+    # row from the top with that tile in the column; one the box's text can cover (the FRAME value "TYPE n") made it
+    # find the box's lower edge instead, 16 lines too low)
+    mbase_ = q0['map'] - 2 * mi_
+    rdm = lambda r_, c_: int.from_bytes((vb[dsrender.O_BGM + mbase_ - 0x06000000 + 2 * (r_ * 32 + c_):][:2] if mbase_ < 0x06200000
+                                        else vb[dsrender.O_BGS + mbase_ - 0x06200000 + 2 * (r_ * 32 + c_):][:2]), 'little')
+    for c_ in range(32):
+        if rdm(mrow_, c_) == me and all(rdm(r_, c_) & 0xF3FF != me & 0xF3FF for r_ in range(mrow_)):
+            mcol_ = c_
+            break
     off_ = (first - mrow_ * 8) & 255
     cols_ = [lines[(h_, y)].most_common(1)[0][0] for y in range(first, last + 1)]
     ents = [(1 << 13 | eng_ | q0['layer'] << 1 | mcol_ << 16 | off_ << 21,
@@ -1100,6 +1110,40 @@ for sc_, idx_ in SCANLINES.items():
     screens[sc_]['vpatch'] = [p for p in screens[sc_].get('vpatch', []) if not (p[2] == idx_ % 16)]
     ipstat['scanline colour rules'] += 1
     print('scanlines', sc_, 'entry', idx_, 'lines', first, last, 'col', x0_ // 8, 'tile', me & 1023, 'pal', me >> 12, cols_)
+# see-through sprites drawn solid with the owner's colours (rhtheme/ ObjCopies translucent kind, w1 bit 10): the field
+# menu's registered-item panel is blended over the screen; the owner's colours for it are exact ones. (screen: engine,
+# sprite row) - the colours per entry from the owner's picture where those sprites are on top
+SEMI_SOLID = {'25_field_menu.png': (1, 10)}
+for sc_, (eng_, pal_) in SEMI_SOLID.items():
+    if sc_ not in screens:
+        continue
+    vb = open(CAPS + 'am_' + MATCH[sc_] + '.vram2', 'rb').read()
+    shot_ = Image.open(CAPS + 'am_' + MATCH[sc_] + '.png').convert('RGB')
+    scr_, fit_ = dsrender.screens(vb, shot_)
+    o_ = Image.open(PA[sc_]).convert('RGB')
+    base0 = 768 if eng_ else 256
+    want_ = collections.defaultdict(collections.Counter)
+    h_ = [hh for hh in (0, 1) if dsrender.ENGINES[0][hh] == eng_][0]
+    for y_ in range(192):
+        for x_ in range(256):
+            q = scr_[h_][y_][x_]
+            if q and q['kind'] == 'obj' and q.get('semi') and q['idx'] // 16 == base0 // 16 + pal_:
+                want_[q['idx'] % 16][own5(o_.getpixel((x_, h_ * 192 + y_)))] += 1
+    oam_ = vb[dsrender.O_OAM + 0x400 * eng_:dsrender.O_OAM + 0x400 * eng_ + 0x400]
+    used_ = {int.from_bytes(oam_[q_ * 8 + 4:q_ * 8 + 6], 'little') >> 12 for q_ in range(128)
+             if (int.from_bytes(oam_[q_ * 8:q_ * 8 + 2], 'little') & 0x300) != 0x200}
+    ipd = dict(screens[sc_].get('ipatch', []))
+    taken_ = {i_ // 16 - base0 // 16 for i_ in ipd if base0 <= i_ < base0 + 256}
+    free_ = [r_ for r_ in range(15, 0, -1) if r_ not in used_ and r_ not in taken_]
+    if not free_ or not want_:
+        print('semi solid: nothing to do', sc_); continue
+    nr = free_[0]
+    for j_ in range(16):
+        ipd[base0 + nr * 16 + j_] = (want_[j_].most_common(1)[0][0] if want_[j_]
+                                     else dsrender.colour(vb, base0 + pal_ * 16 + j_) & 0x7FFF)
+    screens[sc_]['ipatch'] = sorted(ipd.items())
+    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [(eng_ | pal_ << 4 | 1 << 9, nr | 1 << 10)]
+    print('semi solid', sc_, 'row', pal_, '->', nr, {j_: c_.most_common(1)[0][0] for j_, c_ in want_.items() if c_})
 for sc_, rules_ in TRANSLUCENT.items():
     if sc_ in screens:
         screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [

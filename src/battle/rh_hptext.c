@@ -198,6 +198,7 @@ static u32 Boxes(u32 shift, u16 *idx, const u8 **chr, u32 *used)
 
 static u32 sRow;
 static u8 sPut[MAX_PIECES];          // 1 + the OAM index of each box sprite's overlay (0: none)
+static u8 sBoxAt[MAX_PIECES];        // 1 + the OAM index of each piece's box sprite last seen (0: not known)
 
 // each overlay goes in front of its box sprite: a free OAM entry with a lower index (drawn on top). Done after every
 // copy of the game's sprites to the hardware, so harmless again: a box whose overlay is already in is left alone.
@@ -256,6 +257,7 @@ static void Insert(u32 shift, const u16 *idx, u32 n)
         OAM[j * 4 + 1] = (u16)a1;
         OAM[j * 4 + 2] = (u16)((a2 & 0x0C00) | sRow << 12 | OVL_SLOT(s));
         sPut[s] = (u8)(j + 1);
+        sBoxAt[s] = 0;                    // (its box sprite: found by RH_HpSync's next full look)
     }
 }
 
@@ -286,10 +288,19 @@ void RH_HpText(void)
     for (k = 0; k < n; k++)
     {
         const u32 *w = (const u32 *)chr[k];
-        u32 sum = 0;
-        for (i = 0; i < 512; i++)
-            sum = sum * 31 + w[i];
-        if (sPiece[k].art != NO_ART && sPiece[k].sum != sum)
+        u32 sum, h0 = 1, h1 = 2, h2 = 3, h3 = 4;
+        if (sPiece[k].art == NO_ART)
+            continue;
+        // (4 independent lanes, 8 words a step: the one serial multiply chain over all 2 KB of each box sprite every
+        // frame took ~7 scanlines a frame in battle)
+        for (i = 0; i < 512; i += 8)
+        {
+            u32 x0 = w[i], x1 = w[i + 1], x2 = w[i + 2], x3 = w[i + 3], x4 = w[i + 4], x5 = w[i + 5], x6 = w[i + 6], x7 = w[i + 7];
+            h0 = h0 * 31 + x0; h1 = h1 * 37 + x1; h2 = h2 * 41 + x2; h3 = h3 * 43 + x3;
+            h0 = h0 * 31 + x4; h1 = h1 * 37 + x5; h2 = h2 * 41 + x6; h3 = h3 * 43 + x7;
+        }
+        sum = (h0 ^ h1 * 3 ^ h2 * 5 ^ h3 * 7) | 1;           // (never 0: 0 = no text copied yet, SlotOf)
+        if (sPiece[k].sum != sum)
         {
             // what the game drew changed: copy its text again
             vu32 *ovl = (vu32 *)(OBJ_VRAM + (OVL_SLOT(k) << shift));
@@ -333,12 +344,16 @@ void RH_HpOam(void)
 // after the sprite library's own OAM copies (moving sprites between the game's full copies, theme's hook): each
 // overlay put in earlier takes its box sprite's new position, or goes away with it
 // (returns whether an overlay put in was overwritten by the copy: then they go in again, RH_HpOam)
-u32 RH_HpSync(void)
+u32 RH_HpSync(u32 offset, u32 size)
 {
-    u32 s, i, shift = 5 + (*(vu32 *)0x04000000 >> 20 & 3), lost = 0;
+    u32 s, i, shift = 5 + (*(vu32 *)0x04000000 >> 20 & 3), lost = 0, a = offset / 8, b = (offset + size + 7) / 8;
     for (s = 0; s < MAX_PIECES; s++)
     {
-        u32 j = sPut[s] - 1u;
+        u32 j = sPut[s] - 1u, bx = sBoxAt[s] - 1u;
+        // (only where this copy wrote the overlay's entry or its box sprite's: the battle's sprite library copies single
+        // sprites ~500 times a frame, a look at all 128 for each piece every time cost the battle's intro frames)
+        if (j < 128 && bx < 128 && !(j >= a && j < b) && !(bx >= a && bx < b))
+            continue;
         if (j < 128 && (OAM[j * 4 + 2] & 1023) != OVL_SLOT(s))
         {
             lost = 1;
@@ -351,11 +366,15 @@ u32 RH_HpSync(void)
                 && OAM[i * 4] >> 14 == 0 && OAM[i * 4 + 1] >> 14 == 3)
                 break;
         if (i == 128)
+        {
             OAM[j * 4] = 0x200;
+            sBoxAt[s] = 0;
+        }
         else
         {
             OAM[j * 4] = OAM[i * 4];
             OAM[j * 4 + 1] = OAM[i * 4 + 1];
+            sBoxAt[s] = (u8)(i + 1);
         }
     }
     return lost;

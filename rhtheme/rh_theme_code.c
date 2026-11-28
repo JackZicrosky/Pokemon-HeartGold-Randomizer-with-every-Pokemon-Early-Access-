@@ -120,6 +120,18 @@ static u32 *sAmFile;        // the table, open
 
 // Opens the table and looks (narc, file, context) up: the file position of its colours (the table stays open), or 0
 // (closed). With the blocks' first keys in memory: one read of the block, one of the entry's header.
+struct RhScreenSig { u32 magic, sig, shown, patches, rows, dbg, calls, callsNow, bytes, t[16]; };   // (t: test builds - scanlines spent in ThemeTask, RegTask, ThemeOam, ThemeRead, ThemePltt, summed)
+extern struct RhScreenSig gRhScreenSig;
+static BOOL sPalDirty;      // (a palette load since ApplyRows last ran: its rows looked for again only then)
+#if RH_TEST && defined(RH_TIMERS)        // (scanline timers: built only with RH_TIMERS - they cost space on the system heap)
+#define RH_TIMED (gRhScreenSig.dbg & 4096)    // (test tools: the timers on - dbg bit 12; off they cost nothing)
+#define RH_S0() u32 s0_ = RH_TIMED ? *(vu16 *)0x04000006 : 0
+#define RH_LINES(a, b) ((b) >= (a) ? (b) - (a) : (b) + 263 - (a))   // (scanlines from VCOUNT a to b: no division)
+#define RH_S1(i) do { if (RH_TIMED) { u32 s1_ = *(vu16 *)0x04000006; gRhScreenSig.t[i] += RH_LINES(s0_, s1_); s0_ = s1_; } } while (0)
+#else
+#define RH_S0() do { } while (0)
+#define RH_S1(i) do { } while (0)
+#endif
 static u32 sAmCacheB = 0xFFFFFFFF;
 static u32 AmoledFind(u32 *file, u32 narcId, s32 fileId, u32 ctx, u32 *start, u32 *count)
 {
@@ -183,12 +195,28 @@ none:
 // whole: a whole file (its screen context was counted by the caller: ctx); else a partial read: some screens read
 // only a few colours of a palette file, e.g. the battle move buttons' type colours (counted here when the file is a
 // UI palette).
+static void ThemeRead_(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx);
 static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx)
 {
+#if RH_TEST
+    RH_S0();
+    ThemeRead_(narcId, fileId, offset, size, dst, whole, ctx);
+    RH_S1(3);
+#else
+    ThemeRead_(narcId, fileId, offset, size, dst, whole, ctx);
+#endif
+}
+static void ThemeRead_(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx)
+{
+    sPalDirty = TRUE;
     u32 *file = NULL;
     u32 theme = RHCT_UiTheme(), pos, start, count, a, b;
     if (size == 0 || (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS))
         return;
+#if RH_TEST
+    if (gRhScreenSig.dbg & 512)                // (test tools: the palette files' theme colours off - timing tests)
+        return;
+#endif
     pos = AmoledFind(file, narcId, fileId, AM_ANY, &start, &count);
     if (pos == 0)
         return;
@@ -259,8 +287,7 @@ static void ThemeCodeColours(void)
 // palettes, tile maps and sprites to the hardware), so the theme's changes are in before the frame is drawn
 #define SysTask_CreateOnVWaitQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E374 | 1))
 #define SysTask_CreateOnVBlankQueue ((void *(*)(void (*)(void *, void *), void *, u32))(0x0200E33C | 1))
-struct RhScreenSig { u32 magic, sig, shown, patches, rows, dbg, calls, callsNow, bytes; };
-struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0, 0, 0, 0, 0 };   // (dbg, test builds: bit 0 no ThemeTask, 1 no RegTask, 2 no ThemeOam)   // (the test tools read it)
+struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0, 0, 0, 0, 0, { 0 } };   // (dbg, test builds: bit 0 no ThemeTask, 1 no RegTask, 2 no ThemeOam)   // (the test tools read it)
 static BOOL sTaskMade;
 static u32 *sPatch;         // the shown screen's tile patches (see TilePatches), sorted by address
 static u32 sPatchCount;
@@ -293,8 +320,20 @@ static u32 ScreenSig(void)
             h = (h ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
             sCurCfg = (sCurCfg ^ cnt ^ bg << 16 ^ eng << 20) * 16777619u;
             // (multiplied, not just rotated: rows moved by a few rows must change it too)
-            for (i = 0, q = (u32)map ^ sCmMap; i < 0x600 / 4; i++)
-                q = (q ^ ((const vu32 *)map)[i]) * 16777619u;
+            {
+                // (4 independent lanes, 8 words a step: one serial multiply chain over every active map's 1.5 KB took
+                // ~5 scanlines a frame)
+                const vu32 *mw = (const vu32 *)map;
+                u32 q0 = (u32)map ^ sCmMap, q1 = 0x9E3779B9u, q2 = 0x85EBCA6Bu, q3 = 0xC2B2AE35u;
+                for (i = 0; i < 0x600 / 4; i += 8)
+                {
+                    u32 x0 = mw[i], x1 = mw[i + 1], x2 = mw[i + 2], x3 = mw[i + 3];
+                    u32 x4 = mw[i + 4], x5 = mw[i + 5], x6 = mw[i + 6], x7 = mw[i + 7];
+                    q0 = (q0 ^ x0) * 16777619u; q1 = (q1 ^ x1) * 16777619u; q2 = (q2 ^ x2) * 16777619u; q3 = (q3 ^ x3) * 16777619u;
+                    q0 = (q0 ^ x4) * 16777619u; q1 = (q1 ^ x5) * 16777619u; q2 = (q2 ^ x6) * 16777619u; q3 = (q3 ^ x7) * 16777619u;
+                }
+                q = ((q0 * 3 ^ q1) * 5 ^ q2) * 7 ^ q3;
+            }
             if (q == sMapQuick[eng * 4 + bg])
             {
                 h = (h ^ sMapHash[eng * 4 + bg]) * 16777619u;
@@ -454,6 +493,11 @@ static void ApplyRows(void)
     if (sRows == NULL || sRowFrames == 0)      // (the first second of a screen: the late loads)
         return;
     sRowFrames--;
+    // (after the first time only when the game loaded palettes since: every word of palette RAM and of all the game's
+    // buffers each frame for a second cost the battle's intro 4 frames)
+    if (!sPalDirty && sRowFrames != 59)
+        return;
+    sPalDirty = FALSE;
     ReplaceRows((u32 *)0x05000000, (u32 *)0x05000800, sRows, sRowN, sBloom);   // palette RAM, both screens
     for (i = 0; i < PG_MAX_BUFS; i++)                                         // the game's palette buffers
         if (BufLive(i))
@@ -480,6 +524,12 @@ static u32 sRegCount;
 // SetIndex for a colour the game put back in its unfaded buffer (a reload): the faded copy and palette RAM only where no
 // fade is under way for the entry (faded = the unfaded colour it had), else the fade goes on from the game's colours
 // (the battle's exit fade: the message text would light up again)
+
+// Whether an index patch waits (returns 2) or goes only into the game's unfaded buffer (1), not into the shown colours:
+// 2 = the entry's row in the game's unfaded buffer is one colour (not 0: an empty row is a free one) - a fill, e.g. the
+// battle intro's flash (the battle's screens are recognised from their tile maps before their palettes come); 1 = the
+// row's faded copy is one colour while the unfaded isn't - the screen faded out (to black / white), its fade in still to
+// come, which then brings the theme's colour (Default: the battle's lower screen stays black until it fades in)
 static void SetIndexKeepFade(u32 idx, u32 want, u32 old)
 {
     static const u8 sBufFor[4] = { 0, 2, 1, 3 };
@@ -489,7 +539,7 @@ static void SetIndexKeepFade(u32 idx, u32 want, u32 old)
         {
             u16 *fd = (u16 *)sBufs[i].faded;
             ((u16 *)sBufs[i].unfaded)[off] = (u16)want;
-            if (fd[off] == (u16)old)
+            if (fd[off] == old)
             {
                 fd[off] = (u16)want;
                 ((vu16 *)0x05000000)[idx] = (u16)want;
@@ -670,6 +720,9 @@ static struct ObjCopy *sObjCopies;
 static u32 sObjEngMask;          // (bit per engine some entry is for)
 static u16 sObjAct[64];          // (the entries the sprite pass acts on: ObjCopies)
 static u32 sObjActCount;
+static u32 sActPal[2];           // (the palette rows the sprite pass's entries act on, per engine)
+static u16 sObjOv[128];          // (the overlay sprites: by slot in the game's copies - sSlotOwn - all in RegTask's pass)
+static u32 sObjOvCount;
 static u16 sObjKey[64];          // (those matched by their sprite's tile, and the tiles: ObjCopies)
 static u32 sObjKeyCount, sObjTileMask[32];
 static u32 sObjCopyCount;
@@ -677,6 +730,21 @@ static void ObjCopyTiles(void);
 static void ObjCopies(u32 offset, u32 size, u16 *obuf);
 static u32 sRuleCalls;
 static u32 sFrame, sObjDone, sRuleFrame = 0xFFFFFFFF, sTilesFrame = 0xFFFFFFFF, sHookFrame = 0xFFFFFFFF, sHooked;       // (vertical blanks counted by RegTask; the frame ObjCopies last ran in)
+// a page's memory: when the system heap has no room (its 20 KB for the game kept), the fuzzy table (FuzzyFind: ~5 KB,
+// read again later when there is room) goes first - the battle's command menu lost its tile patches by ~1 KB
+static void *PageAlloc(u32 size)
+{
+    void *p = SafeAlloc(size);
+    if (p == NULL && sFzTable != NULL)
+    {
+        Heap_Free(sFzTable);
+        sFzTable = NULL;
+        sFzCount = 0;
+        p = SafeAlloc(size);
+    }
+    return p;
+}
+
 static void ShowScreen(u32 sig)
 {
     u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
@@ -696,7 +764,7 @@ static void ShowScreen(u32 sig)
     n = 0;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
     {
-        sPatch = SafeAlloc(n * 6);
+        sPatch = PageAlloc(n * 6);
         if (sPatch != NULL)
         {
             FS_ReadFile(file, sPatch, n * 4);
@@ -709,7 +777,7 @@ static void ShowScreen(u32 sig)
     pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
     if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
     {
-        sIndexUndo = SafeAlloc(n * 12);
+        sIndexUndo = PageAlloc(n * 12);
         if (sIndexUndo != NULL)
         {
             FS_ReadFile(file, sIndexUndo + n, n * 4);
@@ -735,7 +803,7 @@ static void ShowScreen(u32 sig)
         n = 0;
     if (n != 0)
     {
-        sRegs = SafeAlloc(n * 4);
+        sRegs = PageAlloc(n * 4);
         if (sRegs != NULL)
         {
             FS_ReadFile(file, sRegs, n * 4);
@@ -745,7 +813,7 @@ static void ShowScreen(u32 sig)
     // its row rules: after the register patches; then its sprite copies (read in order: the rules' size varies)
     FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
     i = FS_ReadFile(file, &n, 4) == 4 && n <= 4;
-    if (i && n != 0 && (sRules = SafeAlloc(n * sizeof(struct RowRule))) == NULL)
+    if (i && n != 0 && (sRules = PageAlloc(n * sizeof(struct RowRule))) == NULL)
         i = FALSE;
     pair[0] = i;                       // (the file is at the sprite copies)
     if (i && n != 0)
@@ -767,7 +835,7 @@ static void ShowScreen(u32 sig)
     if (pair[0] && FS_ReadFile(file, &n, 4) == 4)
         bloom = n;
     if (bloom != 0xFFFFFFFF && n != 0 && n <= 512  // (512: pixel patches, overlay tiles: ObjCopyTiles)
-        && (sObjCopies = SafeAlloc(n * sizeof(struct ObjCopy))) != NULL)
+        && (sObjCopies = PageAlloc(n * sizeof(struct ObjCopy))) != NULL)
     {
         // (one read for all: a read per entry - ~100 with pixel patches - cost frames when the screen came up)
         FS_ReadFile(file, sObjCopies, n * 8);
@@ -781,7 +849,7 @@ static void ShowScreen(u32 sig)
         sObjCopyCount = n;
         for (i = 0; i < 32; i++)
             sObjTileMask[i] = 0;
-        for (i = 0, sObjEngMask = 0, sObjActCount = 0, sObjKeyCount = 0; i < n; i++)
+        for (i = 0, sObjEngMask = 0, sObjActCount = 0, sObjKeyCount = 0, sObjOvCount = 0, sActPal[0] = sActPal[1] = 0; i < n; i++)
         {
             u32 w0 = sObjCopies[i].w[0];
             sObjEngMask |= 1u << (w0 & 1);
@@ -795,14 +863,22 @@ static void ShowScreen(u32 sig)
                 sObjKey[sObjKeyCount++] = (u16)i;
                 sObjTileMask[(w0 >> 16 & 1023) >> 5] |= 1u << (w0 >> 16 & 31);
             }
+            else if (w0 >> 14 & 1)
+            {
+                if (sObjOvCount < 128)
+                    sObjOv[sObjOvCount++] = (u16)i;
+            }
             else if (sObjActCount < 64)
+            {
                 sObjAct[sObjActCount++] = (u16)i;
+                sActPal[w0 & 1] |= 1u << (w0 >> 4 & 15);
+            }
         }
     }
     // its row versions last (many reads: the index patches above are in palette RAM before the vertical blank ends,
     // a new screen has the owner's colours from its first frame), then the index patches again on top of them
     n = mid > PG_MAX / 2 ? PG_MAX / 2 : mid;
-    row = n ? SafeAlloc(sizeof(struct PgRow) * n * 2) : NULL;
+    row = n ? PageAlloc(sizeof(struct PgRow) * n * 2) : NULL;
     if (row != NULL)
     {
         // each patch: the row it finds (any version) and the version it writes, as two list items; the rows are
@@ -813,11 +889,22 @@ static void ShowScreen(u32 sig)
         {
             if (sObjCopies == NULL)
                 FS_SeekFile(file, at * 8, 1);    // (sprite copies not kept: past them)
-            for (i = 0; i < n; i++)
-            {
-                FS_ReadFile(file, row[2 * i].c, 32);
-                FS_ReadFile(file, row[2 * i + 1].c, 32);
-            }
+            // (all the pairs' rows in one read, through the rows' own memory from the end: 64 bytes each into 72-byte
+            // items, spread out from the last one - no overlap)
+            if (FS_ReadFile(file, row, n * 64) == (s32)(n * 64))
+                for (i = n; i-- > 0;)
+                {
+                    vu32 *src = (vu32 *)row + i * 16;    // (volatile: no library memmove call - the blob has none)
+                    u32 k;
+                    vu32 tmp[16];
+                    for (k = 0; k < 16; k++)
+                        tmp[k] = src[k];
+                    for (k = 0; k < 8; k++)
+                    {
+                        row[2 * i].c[k] = tmp[k];
+                        row[2 * i + 1].c[k] = tmp[8 + k];
+                    }
+                }
         }
         for (i = 0; i < n; i++)
         {
@@ -899,7 +986,7 @@ static void Scanlines(void)
     }
 }
 
-static void RegTask(void *task, void *data)
+static void RegTask_(void *task, void *data)
 {
     u32 i;
     (void)task; (void)data;
@@ -951,9 +1038,11 @@ skipCopies:
 }
 
 static u32 sLastBase;       // the fingerprint before a version's colour went in (FindPage)
-static void ThemeTask(void *task, void *data)
+static u32 sHoldTick;               // (ThemeTask's runs)
+static void ThemeTask_(void *task, void *data)
 {
     u32 theme = RHCT_UiTheme(), sig, i;
+    sHoldTick++;                               // (ThemeTask's runs)
     (void)task; (void)data;
     if (theme != RH_THEME_AMOLED && theme != RH_THEME_IDS)
         return;
@@ -975,10 +1064,16 @@ static void ThemeTask(void *task, void *data)
         else
             sDark = 0;
     }
-    sig = ScreenSig();
+    {
+        RH_S0();
+        sig = ScreenSig();
+        RH_S1(5);
+    }
+    RH_S0();
     gRhScreenSig.sig = sig;
 #if RH_TEST
-    gRhScreenSig.patches = ((u32 (*)(u32))(0x0201ABEC | 1))(0);    // (test tools: the system heap's free bytes)
+    if ((sHoldTick & 15) == 0)                 // (test tools: the system heap's free bytes - every 16th run: a walk
+        gRhScreenSig.patches = GF_ExpHeap_FndGetTotalFreeSize(0);   // through the heap each frame slowed test builds)
 #endif
     if (theme != RH_THEME_AMOLED)
         return;
@@ -1010,6 +1105,7 @@ static void ThemeTask(void *task, void *data)
         sLastBase = sig;
         sig = v;
     }
+    RH_S1(10);
     if (sig != sLastSig)               // (the same page found by fingerprint or by FuzzyFind: kept, no undo/redo blip)
     {
         sLastSig = sig;
@@ -1077,7 +1173,7 @@ static void ThemeTask(void *task, void *data)
                     *(vu32 *)0x040000B8 = 0;
                     ((vu16 *)0x05000000)[sObjCopies[i].w[1] & 1023] = (u16)GetBuf(sObjCopies[i].w[1] & 1023, TRUE);
                 }
-            sObjCopyCount = 0; sObjActCount = 0; sObjKeyCount = 0;   // (first: the OAM hook may run in between)
+            sObjCopyCount = 0; sObjActCount = 0; sObjKeyCount = 0; sObjOvCount = 0;   // (first: the OAM hook may run in between)
             Heap_Free(sObjCopies);
             sObjCopies = NULL;
         }
@@ -1095,7 +1191,9 @@ static void ThemeTask(void *task, void *data)
         for (i = 0; i < 8; i++)
             sMapQuick[i] = 0;
     }
+    RH_S1(11);
     TilePatches(FALSE);
+    RH_S1(6);
     ApplyRows();
     {
         u32 i;
@@ -1115,8 +1213,11 @@ static void ThemeTask(void *task, void *data)
             // (loaded straight into palette RAM: RegTask, every vertical blank)
         }
     }
+    RH_S1(7);                                   // (the rows and index patches)
     ObjCopyTiles();                             // (sprite tile copies: once a frame, in the main loop)
+    RH_S1(8);
     RowRules(FALSE);
+    RH_S1(9);
     // the register patches after the game's main loop too (it may set its registers there, after RegTask's vertical
     // blank: the field menu's dimming blend came back every other frame)
     for (i = 0; i < sRegCount; i++)
@@ -1128,12 +1229,16 @@ static void ThemeTask(void *task, void *data)
         if (hp[0] == 0x54504852 && hp[1] == 0x31545854)
         {
             sCmMap = ((u32 (*)(void))hp[5])();      // battle move buttons (the Check Moves map it re-pointed, or 0)
+            RH_S1(12);
             ((void (*)(void))hp[2])();              // HP-box text
+            RH_S1(13);
         }
 
     }
 }
 
+static void ThemeTask(void *task, void *data);
+static void RegTask(void *task, void *data);
 static void ThemePalette(u32 narcId, s32 fileId, u8 *data, u32 fileSize)
 {
     if (!sTaskMade)
@@ -1293,6 +1398,69 @@ static void ObjCopyTiles(void)
 // (a sprite patched in OAM: in the game's buffer the copy came from too - another copy of that buffer later in the
 // frame, by a path without the hook, carries the patch: the field menu's CHECK label blinked every A icon step)
 #define MIRROR(k_, e_) do { if (obuf != NULL && offset != 0xFFFFFFFF && (k_) * 8 >= offset && (k_) * 8 - offset < size)     { u16 *b_ = obuf + ((k_) * 8 - offset) / 2; b_[0] = (e_)[0]; b_[1] = (e_)[1]; b_[2] = (e_)[2]; } } while (0)
+static u32 sNoSlot[2];      // (sFrame + 1: no parked sprite slot left this frame, per engine)
+static u8 sSlotOwn[256];   // the overlay sprite (list index + 1) holding each sprite slot (both engines), 0 none
+// An overlay sprite (list entry w0 bit 14): w0 = engine | priority << 1 | shape << 4 | size << 6 | y << 16, w1 = x |
+// tile << 9 | palette row << 19. It takes a sprite slot the game leaves parked (hidden, or at y 192 off screen), from the
+// last one down, kept while the game keeps it parked (mine = 2 + slot); written when a copy of the game's sprites
+// (offset / size; 0xFFFFFFFF: RegTask's pass, all) wrote its slot
+static void OverlayOne(u32 p, u32 offset, u32 size, u16 *obuf)
+{
+    u32 n = sObjOv[p];                                 // (p: its place in the overlay list)
+    u32 w0 = sObjCopies[n].w[0], w1 = sObjCopies[n].w[1], eng = w0 & 1, s = sObjCopies[n].mine, k, a0, a1, a2;
+    u32 lo = eng ? 128 : 0, hi = lo + 128;
+    vu16 *oam = (vu16 *)0x07000000, *e;
+    if (s == 0 || s == 0xFFFFFFFF)
+        return;                                        // (its tiles' place is the game's: not shown)
+    if (offset != 0xFFFFFFFF)
+    {
+        u32 a = offset / 8, b = (offset + size + 7) / 8;
+        if (a > lo) lo = a;
+        if (b < hi) hi = b;
+    }
+    if (s >= 2)
+    {
+        e = oam + (eng ? 128 : 0) * 4 + (s - 2) * 4;
+        if ((e[0] & 0x300) != 0x200 && (e[0] & 255) != 192 && e[2] != (u16)(w1 >> 9 & 1023 | (w0 >> 1 & 3) << 10 | (w1 >> 19 & 15) << 12))
+            s = sObjCopies[n].mine = 1;                // (the game uses that slot now: another one)
+    }
+    if (s < 2)
+    {
+        u32 k2, m;
+        if (sNoSlot[eng] == sFrame + 1)
+            return;                                    // (no parked slot found this frame: not looked for again)
+        for (k2 = 128; k2-- > 0;)
+        {
+            e = oam + (eng ? 128 : 0) * 4 + k2 * 4;
+            if ((e[0] & 0x300) != 0x200 && (e[0] & 255) != 192)
+                continue;
+            m = sSlotOwn[(eng ? 128 : 0) + k2];        // (the slot's overlay - checked: it may have moved on since)
+            if (m == 0 || m > sObjOvCount || (sObjCopies[sObjOv[m - 1]].w[0] & 1) != eng
+                || sObjCopies[sObjOv[m - 1]].mine != k2 + 2)
+                break;
+        }
+        if (k2 >= 128)
+        {
+            sNoSlot[eng] = sFrame + 1;
+            return;                                    // (no parked slot: the game uses all 128)
+        }
+        s = sObjCopies[n].mine = k2 + 2;
+        sSlotOwn[(eng ? 128 : 0) + k2] = (u8)(p + 1);
+        lo = 0, hi = 256;                              // (a new slot: written now, even outside this copy - else the
+    }                                                  // sprite was missing for a frame: a trainer card pixel blinked)
+    k = (eng ? 128 : 0) + s - 2;
+    if (k < lo || k >= hi)
+        return;                                        // (this copy didn't write that slot)
+    a0 = (w0 >> 16 & 255) | (w0 >> 4 & 3) << 14;
+    a1 = (w1 & 511) | (w0 >> 6 & 3) << 14;
+    a2 = (w1 >> 9 & 1023) | (w0 >> 1 & 3) << 10 | (w1 >> 19 & 15) << 12;
+    e = oam + k * 4;
+    e[0] = (u16)a0;
+    e[1] = (u16)a1;
+    e[2] = (u16)a2;
+    MIRROR(k, e);
+}
+
 static void ObjCopies(u32 offset, u32 size, u16 *obuf)
 {
     u32 n, k;
@@ -1371,6 +1539,38 @@ static void ObjCopies(u32 offset, u32 size, u16 *obuf)
             }
         }
     }
+    // the overlay sprites: RegTask's pass all of them; a copy of the game's sprites only those in the slots it wrote
+    // (the trainer card copies single sprites ~280 times a frame: a walk through the overlays for each made its flip
+    // run at a third of its speed)
+    if (offset == 0xFFFFFFFF)
+    {
+        for (k = 0; k < sObjOvCount; k++)
+            OverlayOne(k, offset, size, obuf);
+    }
+    else if (sObjOvCount != 0)
+    {
+        u32 a = offset / 8, b = (offset + size + 7) / 8, m;
+        if (b > 256)
+            b = 256;
+        for (k = a; k < b; k++)
+            if ((m = sSlotOwn[k]) != 0 && m <= sObjOvCount && (sObjCopies[sObjOv[m - 1]].w[0] & 1) == (k >= 128)
+                && sObjCopies[sObjOv[m - 1]].mine == k % 128 + 2)
+                OverlayOne(m - 1, offset, size, obuf);
+    }
+    // (a copy of a few sprites: the walk below only when one of them has a palette row the entries act on - battles
+    // copy single sprites ~500 times a frame)
+    if (offset != 0xFFFFFFFF && sObjActCount != 0)
+    {
+        u32 a = offset / 8, b = (offset + size + 7) / 8, any = 0;
+        vu16 *o = (vu16 *)0x07000000;
+        if (b > 256)
+            b = 256;
+        for (k = a; k < b && !any; k++)
+            if ((o[k * 4] & 0x300) != 0x200 && (sActPal[k >= 128] >> (o[k * 4 + 2] >> 12) & 1))
+                any = 1;
+        if (!any)
+            return;
+    }
     for (u32 a_ = 0; a_ < sObjActCount; a_++)
     {
         n = sObjAct[a_];
@@ -1385,52 +1585,7 @@ static void ObjCopies(u32 offset, u32 size, u16 *obuf)
         if (!sObjCopies[n].mine || (w0 >> 12 & 1) || (w0 >> 15 & 1) || ((w0 >> 13 & 1) && !(w0 >> 14 & 1)))
             continue;
         if (w0 >> 14 & 1)
-        {
-            // An overlay sprite (w0 bit 14): w0 = engine | priority << 1 | shape << 4 | size << 6 | y << 16, w1 = x |
-            // tile << 9 | palette row << 19. It takes a sprite slot the game leaves parked (hidden, or at y 192 off
-            // screen), from the last one down, kept while the game keeps it parked (mine = 2 + slot)
-            u32 s = sObjCopies[n].mine, a0, a1, a2, w1 = sObjCopies[n].w[1];
-            vu16 *e;
-            if (s == 0xFFFFFFFF)
-                continue;                              // (its tiles' place is the game's: not shown)
-            if (s >= 2)
-            {
-                e = oam + (eng ? 128 : 0) * 4 + (s - 2) * 4;
-                if ((e[0] & 0x300) != 0x200 && (e[0] & 255) != 192 && e[2] != (u16)(w1 >> 9 & 1023 | (w0 >> 1 & 3) << 10 | (w1 >> 19 & 15) << 12))
-                    s = sObjCopies[n].mine = 1;        // (the game uses that slot now: another one)
-            }
-            if (s < 2)
-            {
-                u32 k2, m;
-                for (k2 = 128; k2-- > 0;)
-                {
-                    e = oam + (eng ? 128 : 0) * 4 + k2 * 4;
-                    if ((e[0] & 0x300) != 0x200 && (e[0] & 255) != 192)
-                        continue;
-                    for (m = 0; m < sObjCopyCount && !((sObjCopies[m].w[0] >> 14 & 1) && !(sObjCopies[m].w[0] >> 12 & 1)
-                                                       && !(sObjCopies[m].w[0] >> 15 & 1) && sObjCopies[m].mine == k2 + 2); m++)
-                        ;
-                    if (m == sObjCopyCount)
-                        break;
-                }
-                if (k2 >= 128)
-                    continue;                          // (no parked slot: the game uses all 128)
-                s = sObjCopies[n].mine = k2 + 2;
-                lo = 0, hi = 256;                      // (a new slot: written now, even outside this copy - else the
-            }                                          // sprite was missing for a frame: a trainer card pixel blinked)
-            k = (eng ? 128 : 0) + s - 2;
-            if (k < lo || k >= hi)
-                continue;                              // (this copy didn't write that slot)
-            a0 = (w0 >> 16 & 255) | (w0 >> 4 & 3) << 14;
-            a1 = (w1 & 511) | (w0 >> 6 & 3) << 14;
-            a2 = (w1 >> 9 & 1023) | (w0 >> 1 & 3) << 10 | (w1 >> 19 & 15) << 12;
-            e = oam + k * 4;
-            e[0] = (u16)a0;
-            e[1] = (u16)a1;
-            e[2] = (u16)a2;
-            MIRROR(k, e);
-            continue;
-        }
+            continue;                  // (overlay sprites: by slot, above)
         // (a copy of the game's sprites: only the sprites it wrote - offset / size in bytes, the sub screen's from
         // 0x400 - not the whole OAM: the Oak intro copies single sprites to the sub screen many times a frame, the
         // whole-OAM pass for every copy starved the game; RegTask's pass, offset 0xFFFFFFFF: all)
@@ -1455,9 +1610,9 @@ static void ObjCopies(u32 offset, u32 size, u16 *obuf)
             if (evb > 16) evb = 16;
             // (the blended row: when the screen appears, then once per frame, in the vertical blank - not after
             // every sprite copy: 15 buffer lookups each made the Pokedex lag)
-            if (sObjCopies[n].mine == 2 && offset != 0xFFFFFFFF)
-                e = 16;
-            else
+            if ((sObjCopies[n].mine == 2 && offset != 0xFFFFFFFF) || (sObjCopies[n].w[1] >> 10 & 1))
+                e = 16;                        // (w1 bit 10: row dst holds the owner's colours, index patches: the
+            else                               // field menu's see-through registered-item panel, solid)
                 e = 1, sObjCopies[n].mine = 2;
             for (; e < 16; e++)
             {
@@ -1512,7 +1667,7 @@ static void ObjCopies(u32 offset, u32 size, u16 *obuf)
 }
 
 // after the game copied sprites to OAM
-static void ThemeOam(u32 offset, u32 size, u16 *src)
+static void ThemeOam_(u32 offset, u32 size, u16 *src)
 {
     u32 i;
 #if RH_TEST
@@ -1521,10 +1676,12 @@ static void ThemeOam(u32 offset, u32 size, u16 *src)
     if (gRhScreenSig.dbg & 4)
         return;
 #endif
+    RH_S0();
 #if RH_TEST
     if (!(gRhScreenSig.dbg & 8))
 #endif
     ObjCopies(offset, size, src);
+    RH_S1(14);
 #if RH_TEST
     if (gRhScreenSig.dbg & 16)
         return;
@@ -1544,11 +1701,13 @@ static void ThemeOam(u32 offset, u32 size, u16 *src)
         if (sRuleCalls++ < 4)
             RowRules(FALSE);
     }
+    RH_S1(15);
 }
 
 // after the game copied colours into palette RAM: the colour rules on top (the game writes some colours every frame)
-static void ThemePltt(u32 at, u32 size, u16 *src)
+static void ThemePltt_(u32 at, u32 size, u16 *src)
 {
+    sPalDirty = TRUE;
     // before the game's colours go into palette RAM (at: byte offset in palette RAM, src: the game's buffer): the row
     // rules applied to what is copied (a colour the game writes every frame - Oak's cards' frame - and the rule's
     // colour alternated when the rule ran around the copy)
@@ -1576,5 +1735,18 @@ static void ThemePltt(u32 at, u32 size, u16 *src)
 }
 
 // what the resident part calls (the first thing in data/rh_theme.bin: rhtheme/linker.ld)
+// the entry points, timed in test builds with RH_TIMERS (scanlines, VCOUNT: the lag tests say which part costs frames)
+#if RH_TEST && defined(RH_TIMERS)
+#define RH_T0() u32 t0_ = RH_TIMED ? *(vu16 *)0x04000006 : 0
+#define RH_T1(i) do { if (RH_TIMED) { u32 t1_ = *(vu16 *)0x04000006; gRhScreenSig.t[i] += RH_LINES(t0_, t1_); } } while (0)
+#else
+#define RH_T0() do { } while (0)
+#define RH_T1(i) do { } while (0)
+#endif
+static void ThemeTask(void *task, void *data) { RH_T0(); ThemeTask_(task, data); RH_T1(0); }
+static void RegTask(void *task, void *data) { RH_T0(); RegTask_(task, data); RH_T1(1); }
+static void ThemeOam(u32 offset, u32 size, u16 *src) { RH_T0(); ThemeOam_(offset, size, src); RH_T1(2); }
+static void ThemePltt(u32 at, u32 size, u16 *src) { RH_T0(); ThemePltt_(at, size, src); RH_T1(4); }
+
 __attribute__((section(".rhtb_header"), used))
 const struct RhThemeBlob gRhThemeBlobHeader = { RHTB_MAGIC, ThemePalette, ThemeRead, ThemeOam, ThemePltt };

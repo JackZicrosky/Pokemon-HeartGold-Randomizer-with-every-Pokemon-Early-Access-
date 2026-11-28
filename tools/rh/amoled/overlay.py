@@ -17,7 +17,6 @@ M = json.load(open('matches.json'))
 OVERLAY = {
     '32_trainer_card_front.png': [(0, 40, 256, 128)],
     '33_trainer_card_back.png': [(0, 40, 256, 128), (32, 0, 100, 24)],
-    '25_field_menu.png': [(180, 280, 256, 320)],
     # the save prompt's band: its first line takes the game's colour only when nothing delays the game's own work
     # for it in the vertical blank (timing): drawn by the theme's sprites instead, the same every frame
     '34_save_prompt.png': [(0, 138, 256, 146)],

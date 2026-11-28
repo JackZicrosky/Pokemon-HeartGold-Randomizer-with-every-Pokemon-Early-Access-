@@ -209,7 +209,7 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
         static u32 sTick;
         gRhHeap0.magic = 0x30484852;
         // (every 16th copy: a walk through the heap on every one made the hooks slow in test builds)
-        if ((sTick++ & 15) == 0 && handles != NULL && idxs != NULL && handles[idxs[0]] != 0)
+        if ((sTick++ & 255) == 0 && handles != NULL && idxs != NULL && handles[idxs[0]] != 0)
         {
             gRhHeap0.now = GF_ExpHeap_FndGetTotalFreeSize_(0);
             if (gRhHeap0.min == 0 || gRhHeap0.now < gRhHeap0.min)
@@ -220,7 +220,7 @@ static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
     if (part != 0 && RHCT_UiTheme() == RH_THEME_AMOLED && hp[0] == 0x54504852 && hp[1] == 0x31545854)
     {
         // (a copy of only some sprites may have overwritten an overlay: RH_HpSync says so, then they go back in)
-        if (((u32 (*)(void))hp[part])() && part == 4)
+        if (((u32 (*)(u32, u32))hp[part])(offset, size) && part == 4)
             ((void (*)(void))hp[3])();
     }
     if (sBlob != NULL && RHCT_UiTheme() == RH_THEME_AMOLED)

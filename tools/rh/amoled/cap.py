@@ -97,6 +97,13 @@ def apply_nopages():
         for i, v in enumerate((0x45474150).to_bytes(4, 'little')):
             h.emu.memory.write_byte(a + 16 + i, v)
         PENDING_NOPAGES[0] = False
+    if PENDING_DBG[0] is not None:                # (dbg: before the theme's code is loaded - set once it is)
+        a = sig_addr()
+        if a is not None:
+            for i_, v_ in enumerate(PENDING_DBG[0].to_bytes(4, 'little')):
+                h.emu.memory.write_byte(a + 20 + i_, v_)
+            PENDING_DBG[0] = None
+PENDING_DBG = [None]
 for k in sys.argv[3:]:
     apply_nopages()
     if k == 'theme':
@@ -325,7 +332,7 @@ for k in sys.argv[3:]:
         parts = k.split(':'); name = parts[1]; nfr = int(parts[2]) if len(parts) > 2 else 300
         inp = parts[3] if len(parts) > 3 else None
         d = '%s/rec/%s_%s' % (SP, mode, name); os.makedirs(d, exist_ok=True)
-        seen = {}; index = []
+        seen = {}; index = []; pal = []
         for fi in range(nfr):
             if inp and fi == 0:
                 if inp[0] == 'T':
@@ -343,9 +350,10 @@ for k in sys.argv[3:]:
             if hs not in seen:
                 seen[hs] = 'f%03d.png' % fi; img.save(d + '/' + seen[hs])
             index.append(seen[hs])
+            pal.append([h.emu.memory.unsigned.read_short(0x05000000 + 2 * q) for q in (3, 0x203, 0x103, 0x303, 615, 743)] + [int.from_bytes(bytes(h.emu.memory.read(0x400006C, 0x400006D, 1, False))[:2], 'little'), int.from_bytes(bytes(h.emu.memory.read(0x400106C, 0x400106D, 1, False))[:2], 'little')])
         j = sig_addr() if mode == 'am' else None      # the screen fingerprint and the last page shown (a match: equal)
         sg = [h.emu.memory.unsigned.read_long(j + 4 * q) for q in (1, 2)] if j else None
-        json.dump({'mode': mode, 'input': inp, 'frames': index, 'sig': sg}, open(d + '/index.json', 'w'))
+        json.dump({'mode': mode, 'input': inp, 'frames': index, 'sig': sg, 'pal': pal}, open(d + '/index.json', 'w'))
         print('rec', name, nfr, 'frames', len(seen), 'distinct')
     elif k.startswith('ssave:'):                 # ssave:NAME / sload:NAME  emulator savestate (scratchpad/NAME.dst)
         h.emu.savestate.save_file(SP + '/' + k[6:] + '.dst')
@@ -364,6 +372,11 @@ for k in sys.argv[3:]:
         for i in range(0 if in_battle() else 120):
             h.hold('U' if i % 2 == 0 else 'D', 16); h.run(4)
             if in_battle(): break
+        print('battle steps', i + 1 if not in_battle() or True else 0)
+    elif k.startswith('steps:'):                  # steps:N  Route 30 grass: N steps up/down (the walk 'battle' made)
+        play.goto(h, m, 554, 331)
+        for i in range(int(k[6:])):
+            h.hold('U' if i % 2 == 0 else 'D', 16); h.run(4)
     elif k[0] == 'P':                             # Px,y: touch and stay pressed (button pressed look)
         x, y = k[1:].split(',')
         h.emu.input.touch_set_pos(int(x), int(y)); h.run(6)
@@ -453,10 +466,14 @@ for k in sys.argv[3:]:
             hist[h.emu.memory.register_arm9.pc >> 6 << 6] += 1
         print('pcs', ' '.join('%x:%d' % kv for kv in hist.most_common(25)))
     elif k.startswith('dbg:'):                    # dbg:N  test builds: switch parts of the AMOLED theme off (gRhScreenSig.dbg)
+        PENDING_DBG[0] = int(k[4:]); apply_nopages()
+    elif k.startswith('times:'):                  # times:N  N frames: scanlines the theme's parts took (test builds): ThemeTask,
+        j = sig_addr()                            # RegTask, ThemeOam, ThemeRead, ThemePltt - summed over the N frames
+        t0 = [h.emu.memory.unsigned.read_long(j + 36 + 4 * q) for q in range(16)] if j else [0] * 16
+        h.run(int(k[6:]))
         j = sig_addr()
-        if j:
-            for i_, v_ in enumerate(int(k[4:]).to_bytes(4, 'little')):
-                h.emu.memory.write_byte(j + 20 + i_, v_)
+        t1 = [h.emu.memory.unsigned.read_long(j + 36 + 4 * q) for q in range(16)] if j else [0] * 16
+        print('times', ' '.join(str(b - a) for a, b in zip(t0, t1)))
     elif k.startswith('calls:'):                  # calls:N  N frames: sprite copies per frame (count, bytes) - test builds
         j = sig_addr(); out_ = []
         for _ in range(int(k[6:])):
@@ -476,7 +493,8 @@ for k in sys.argv[3:]:
     elif k.startswith('regs:'):                   # regs:N  N frames: the sub engine's blend registers as written
         for _ in range(int(k[5:])):
             r = io_regs()
-            print('regs', ' '.join('%04x' % int.from_bytes(r[0x70 + o:0x72 + o], 'little') for o in (0x0, 0x48, 0x4A, 0x50, 0x52, 0x54)))
+            apply_nopages()
+            print('regs', ' '.join('%04x' % int.from_bytes(r[0x70 + o:0x72 + o], 'little') for o in (0x0, 0x48, 0x4A, 0x50, 0x52, 0x54, 0x6C, -0x70 + 0x6C)))
             h.run(1)
     elif k.startswith('oam:'):                    # oam:N  N frames: main OAM entries using the top 16 KB of OBJ VRAM (overlays)
         for _ in range(int(k[4:])):
