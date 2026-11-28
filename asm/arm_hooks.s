@@ -46,3 +46,31 @@ ldr ip, =RH_LoadOamCopySub
 bx ip
 
 .pool
+
+.global RH_LoadPlttBg_arm
+RH_LoadPlttBg_arm:
+ldr ip, =RH_LoadPlttBg
+bx ip
+
+.pool
+
+.global RH_LoadPlttBgSub_arm
+RH_LoadPlttBgSub_arm:
+ldr ip, =RH_LoadPlttBgSub
+bx ip
+
+.pool
+
+.global RH_LoadPlttObj_arm
+RH_LoadPlttObj_arm:
+ldr ip, =RH_LoadPlttObj
+bx ip
+
+.pool
+
+.global RH_LoadPlttObjSub_arm
+RH_LoadPlttObjSub_arm:
+ldr ip, =RH_LoadPlttObjSub
+bx ip
+
+.pool

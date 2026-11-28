@@ -13,3 +13,8 @@ arm9 RH_LoadOamCopy_arm 020B78C4 12
 arm9 RH_LoadOamSub_arm 020CFE1C 12
 # and the sprite library's sub-screen OAM loader (the pointer table at 0x021109CC)
 arm9 RH_LoadOamCopySub_arm 020B78B0 12
+# romhack: AMOLED theme, colour rules after the game's palette copies (src/rh_theme.c LoadPltt): the SDK's loaders
+arm9 RH_LoadPlttBg_arm 020CFC6C 12
+arm9 RH_LoadPlttBgSub_arm 020CFCC0 12
+arm9 RH_LoadPlttObj_arm 020CFD18 12
+arm9 RH_LoadPlttObjSub_arm 020CFD70 12

@@ -182,19 +182,34 @@ static void ThemeRead(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOO
 struct RhHeap0 { u32 magic, min, now; };
 struct RhHeap0 gRhHeap0;     // (overlay 129 has no initialised data: the magic "RHH0" is set on the first frame)
 #endif
+// (32-bit copies when everything is word-aligned: half the time of 16-bit ones - the copy runs inside the game's
+// vertical-blank work, the save prompt's band lost its first line when the hooks took too long)
+static void CopyHw(vu16 *dst, const u16 *from, u32 size)
+{
+    if ((((u32)dst | (u32)from | size) & 3) == 0)
+    {
+        vu32 *d = (vu32 *)dst;
+        const u32 *f = (const u32 *)from;
+        for (size >>= 2; size != 0; size--)
+            *d++ = *f++;
+        return;
+    }
+    for (size >>= 1; size != 0; size--)
+        *dst++ = *from++;
+}
+
 static void LoadOam(const u32 *src, u32 offset, u32 size, u32 part)
 {
     const u32 *hp = (const u32 *)0x023C4000;
-    vu16 *dst = (vu16 *)(0x07000000 + offset);
-    const u16 *from = (const u16 *)src;
-    for (size >>= 1; size != 0; size--)
-        *dst++ = *from++;
+    CopyHw((vu16 *)(0x07000000 + offset), (const u16 *)src, size);
 #if RH_TEST
     {
         u32 *handles = *(u32 **)0x021D1584;
         u8 *idxs = *(u8 **)(0x021D1584 + 0x10);
+        static u32 sTick;
         gRhHeap0.magic = 0x30484852;
-        if (handles != NULL && idxs != NULL && handles[idxs[0]] != 0)
+        // (every 16th copy: a walk through the heap on every one made the hooks slow in test builds)
+        if ((sTick++ & 15) == 0 && handles != NULL && idxs != NULL && handles[idxs[0]] != 0)
         {
             gRhHeap0.now = GF_ExpHeap_FndGetTotalFreeSize_(0);
             if (gRhHeap0.min == 0 || gRhHeap0.now < gRhHeap0.min)
@@ -233,6 +248,23 @@ void RH_LoadOamMain(const u32 *src, u32 offset, u32 size)
 {
     LoadOam(src, offset, size, 3);
 }
+
+// The SDK's palette loaders (GX_LoadBGPltt 0x020CFC6C, GXS_LoadBGPltt 0x020CFCC0, GX_LoadOBJPltt 0x020CFD18,
+// GXS_LoadOBJPltt 0x020CFD70, armhooks): the copy here, then the AMOLED theme's colour rules right after it - a
+// colour the game writes every frame (Oak's boy / girl cards: the unselected card's frame) and the theme's rule for it
+// alternated when the rule ran before the game's copy
+static void LoadPltt(const u32 *src, u32 offset, u32 size, u32 area)
+{
+    // (the theme's rules into the game's buffer first: the copy then carries them - applied after it, one line of the
+    // screen was drawn with the game's colour in between)
+    if (sBlob != NULL && RHCT_UiTheme() == RH_THEME_AMOLED)
+        sBlob->pltt(area + offset, size, (u16 *)src);
+    CopyHw((vu16 *)(0x05000000 + area + offset), (const u16 *)src, size);
+}
+void RH_LoadPlttBg(const u32 *src, u32 offset, u32 size) { LoadPltt(src, offset, size, 0x000); }
+void RH_LoadPlttBgSub(const u32 *src, u32 offset, u32 size) { LoadPltt(src, offset, size, 0x400); }
+void RH_LoadPlttObj(const u32 *src, u32 offset, u32 size) { LoadPltt(src, offset, size, 0x200); }
+void RH_LoadPlttObjSub(const u32 *src, u32 offset, u32 size) { LoadPltt(src, offset, size, 0x600); }
 
 static void *Uncompress(void *data, u32 heapId, BOOL atEnd, u32 *sizeOut)
 {

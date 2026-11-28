@@ -69,7 +69,8 @@ ICON_SLIPS = {}
 ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)], '28_pokedex_list.png': [(36, 204, 68, 236), (152, 204, 184, 236)],
              # the player's HP box bobs a pixel up and down while the command menu waits (the owner's two pictures
              # and the recordings catch it at different heights): proven on its own, some frame exactly as drawn
-             '67_battle_fight_pressed.png': [(128, 86, 256, 146)], '68_battle_bag_pressed.png': [(128, 86, 256, 146)],
+             '67_battle_fight_pressed.png': [(128, 86, 256, 146), (78, 258, 106, 284)],
+             '68_battle_bag_pressed.png': [(128, 86, 256, 146), (0, 80, 128, 192)],
              '66_battle_command_menu.png': [(128, 86, 256, 146)]}
 # icons whose animation frame is fixed when the screen opens (the Pokedex list): proven against recordings that open it
 # at different moments (ICON_RECS: extra recordings searched for the owner's frame)

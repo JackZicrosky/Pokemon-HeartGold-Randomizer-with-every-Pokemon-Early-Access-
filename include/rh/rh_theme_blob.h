@@ -25,6 +25,7 @@ struct RhThemeBlob
     void (*palette)(u32 narcId, s32 fileId, u8 *data, u32 fileSize);                       // a whole palette file read
     void (*read)(u32 narcId, s32 fileId, u32 offset, u32 size, u8 *dst, BOOL whole, u32 ctx); // part of one
     void (*oam)(u32 offset, u32 size, u16 *src);   // (src: the game's buffer copied, patched too)   // after the game copied sprites to OAM (main screen: offset < 0x400)
+    void (*pltt)(u32 at, u32 size, u16 *src);       // before the game's colours are copied into palette RAM (at: byte offset)
 };
 
 // the file: { magic, image size, memory size (image + zeroed rest), relocation count }, the image, then the

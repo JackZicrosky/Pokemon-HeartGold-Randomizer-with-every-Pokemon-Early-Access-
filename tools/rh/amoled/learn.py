@@ -1084,9 +1084,13 @@ for sc_, idx_ in SCANLINES.items():
                         else vb[dsrender.O_BGS + q0['map'] - 0x06200000:][:2], 'little')
     ys = sorted(y for (hh, y) in lines if hh == h_)
     first, last = ys[0], ys[-1]
-    off_ = first - (first // 8) * 8
+    # (the cell's column and row from its map address, not the screen position: the layer may be scrolled; the line
+    # offset from the cell row's top, signed)
+    mi_ = ((q0['map'] - 0x06000000) & 0x7FF) // 2
+    mcol_, mrow_ = mi_ % 32, mi_ // 32
+    off_ = (first - mrow_ * 8) & 255
     cols_ = [lines[(h_, y)].most_common(1)[0][0] for y in range(first, last + 1)]
-    ents = [(1 << 13 | eng_ | q0['layer'] << 1 | (x0_ // 8) << 16 | off_ << 21,
+    ents = [(1 << 13 | eng_ | q0['layer'] << 1 | mcol_ << 16 | off_ << 21,
              idx_ % 256 + (512 if eng_ else 0) * 0 + (idx_ // 256) * 256 | (me & 1023) << 10 | (me >> 12) << 20 | len(cols_) << 24)]
     cols2 = cols_ + [cols_[-1]] * (len(cols_) & 1)
     for p_ in range(0, len(cols2), 2):
