@@ -21,9 +21,13 @@ OVERLAY = {
     # for it in the vertical blank (timing): drawn by the theme's sprites instead, the same every frame
     '34_save_prompt.png': [(0, 138, 256, 146)],
     # the battle command menu's arcs under FIGHT (the owner's colours on a blended layer the theme can't reach)
+    # the options menu's FRAME value box: its top line and side columns, the owner's gradient colour where the box's
+    # entry has its own (one entry per line: the scanline colours can't give two on a line)
+    '35_options_menu.png': [(144, 338, 216, 348)],
     '66_battle_command_menu.png': [(64, 306, 192, 336)],
     '67_battle_fight_pressed.png': [(64, 306, 192, 336), (0, 196, 256, 212), (0, 340, 256, 384)],
-    '68_battle_bag_pressed.png': [(64, 306, 192, 336)],
+    '68_battle_bag_pressed.png': [(64, 306, 192, 336), (30, 238, 36, 280), (220, 238, 226, 280), (30, 308, 36, 314),
+                                  (220, 308, 226, 314), (170, 364, 256, 368)],
 }
 # (only the pictures named on the command line are made again: the others' overlays are kept - a recording that
 # already shows an overlay would make it empty)
@@ -44,6 +48,7 @@ for pic, boxes in OVERLAY.items():
     prev = out.pop(pic, None)
     if prev:
         vb0 = open(CAPS + 'am_' + M[pic] + '.vram2', 'rb').read()
+        dsrender.screens(vb0, Image.open(CAPS + 'am_' + M[pic] + '.png').convert('RGB'))   # (which engine is where)
         cols0 = {i % 256: c for i, c in prev['ipatch']}         # (row * 16 + entry within the engine's OBJ palette)
         words, half0 = {}, None
         for a, b in prev['objcopy']:
@@ -95,6 +100,8 @@ for pic, boxes in OVERLAY.items():
     if not best:
         continue
     vb = open(CAPS + 'am_' + cap + '.vram2', 'rb').read()
+    # (which engine shows on which screen: the options menu has the main engine on the bottom one)
+    dsrender.screens(vb, Image.open(CAPS + 'am_' + cap + '.png').convert('RGB'))
     half = best[0][1] // 192
     if any(y // 192 != half for _, y, _ in best):
         print(pic, 'boxes span both screens: skipped'); continue
