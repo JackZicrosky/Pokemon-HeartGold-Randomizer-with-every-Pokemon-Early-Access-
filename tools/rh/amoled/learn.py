@@ -79,7 +79,7 @@ NO_CELL_ROWS = {'52_bag_item_menu.png'}   # (its copy's 'blank' tile is the item
 # pictures matched to their capture (for the proof) but not learned: they show a state of a learned screen that the
 # theme's colours can't tell apart from it (73: the field menu with POKeMON pressed; as its own version of 25 the two
 # flipped - the theme's colours change the entry that tells them apart)
-LEARN_SKIP = {'73_field_menu_pokemon_pressed.png'}
+LEARN_SKIP = set()
 NOCOPY = {'67_battle_fight_pressed.png', '68_battle_bag_pressed.png', '69_battle_bag_pocket_pressed.png'}
 # entries the game uses only in animations no capture shows (button presses): never a spare for tile patches
 # (battle bag item buttons: 9, 11 of each row, the press flash; battle command buttons: 2-4 of each row, FIGHT's press)
@@ -652,6 +652,7 @@ for sc in screens:
 # a palette entry the game gives another colour in each (none of their pages touches it; background palettes first,
 # sprite palettes animate more): each gets a page of its own under the fingerprint mixed with that colour, the screen
 # list marks the fingerprint with the entry (src/rh_theme.c FindPage / ThemeTask)
+VERSION_KEY = {'25_field_menu.png': 793, '73_field_menu_pokemon_pressed.png': 793}   # (sub OBJ row 1 entry 9: the pressed icon)
 by_sig = collections.defaultdict(list)
 for sc_ in screens:
     by_sig[screens[sc_]['sig']].append(sc_)
@@ -670,6 +671,11 @@ for sig_, names in by_sig.items():
     order = list(range(0, 256)) + list(range(512, 768)) + list(range(256, 512)) + list(range(768, 1024))
     # (the entry that tells most of them apart; pictures it can't tell apart still share a page)
     key = max((k_ for k_ in order if k_ not in touched), key=lambda k_: (len({pals[n_][k_] for n_ in names}), -order.index(k_)))
+    # (named keys: an entry the press itself changes - the automatic choice took an overworld colour that differed
+    # between the two captures by chance; a key the pages colour works: the theme reads the game's colour for it)
+    for n_ in names:
+        if n_ in VERSION_KEY and len({pals[m_][VERSION_KEY[n_]] for m_ in names}) == len(names):
+            key = VERSION_KEY[n_]
     if len({pals[n_][key] for n_ in names}) < 2:
         key = None
     if key is None:

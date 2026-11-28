@@ -25,7 +25,7 @@ OVERLAY = {
     # entry has its own (one entry per line: the scanline colours can't give two on a line)
     '35_options_menu.png': [(144, 338, 216, 348)],
     '66_battle_command_menu.png': [(64, 306, 192, 336)],
-    '67_battle_fight_pressed.png': [(64, 306, 192, 336), (0, 196, 256, 212), (0, 340, 256, 384)],
+    '67_battle_fight_pressed.png': [(64, 306, 192, 336), (0, 196, 256, 214), (0, 340, 256, 384), (0, 296, 64, 310)],
     '68_battle_bag_pressed.png': [(64, 306, 192, 336), (30, 238, 36, 280), (220, 238, 226, 280), (30, 308, 36, 314),
                                   (220, 308, 226, 314), (170, 364, 256, 368)],
 }

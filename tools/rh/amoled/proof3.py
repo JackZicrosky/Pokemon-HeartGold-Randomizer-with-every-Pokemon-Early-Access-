@@ -77,7 +77,9 @@ ICON_ANIM = {'40_party_menu.png': [(8, 196, 48, 232)], '28_pokedex_list.png': [(
 ICON_RECS = {'28_pokedex_list.png': ['s28v%d' % k for k in range(8)],
              # (68: the press recording starts a frame after the owner's moment, the box already on its way out; the
              # same battle's command menu just before the press shows it where the owner's picture has it)
-             '68_battle_bag_pressed.png': ['s2_cmd2']}
+             '68_battle_bag_pressed.png': ['s2_cmd2'],
+             # (67: the press at each phase of the FIGHT icon's bob - t28v.sh)
+             '67_battle_fight_pressed.png': ['e_fpv%d' % k for k in range(1, 13)]}
 # areas where the owner's Default and AMOLED pictures come from different moments (64/65: the wild Rattata is Lv3
 # in the Default picture, Lv4 in the AMOLED one): the level digit counts neither way
 PAIR_MISMATCH = {'64_battle_party.png': [(80, 27, 93, 37)], '65_battle_party_menu.png': [(80, 27, 93, 37)]}

@@ -291,6 +291,7 @@ struct RhScreenSig gRhScreenSig = { 0x47534852 /* "RHSG" */, 0, 0, 0, 0, 0, 0, 0
 static BOOL sTaskMade;
 static u32 *sPatch;         // the shown screen's tile patches (see TilePatches), sorted by address
 static u32 sPatchCount;
+static u16 *sPatchVal;       // each patched VRAM word as the theme left it (after sPatch's items), for the undo
 u32 sCmMap;                 // the battle Check Moves map re-pointed at its type rows (src/battle/rh_hptext.c), or 0
 
 // Each map's quick checksum (as it is, theme's patches and all) and its part of the fingerprint: a map is fingerprinted
@@ -375,6 +376,11 @@ static u32 ScreenSig(void)
                     for (; lo < sPatchCount && (sPatch[lo] & 0x7FFFFF) < a + 2; lo++)
                     {
                         u32 p = sPatch[lo], sh = (p & 1) * 8 + (p >> 23 & 1) * 4;
+                        // (only a word still as the theme left it: one the game has just drawn again - the battle's
+                        // FIGHT button pressed - is the game's as it is; un-patching it gave the screen another
+                        // fingerprint and the pressed button's page was never found)
+                        if (sPatchVal != NULL && map[i] != sPatchVal[lo])
+                            continue;
                         if ((e >> sh & 15) == (p >> 28 & 15))
                             e = (e & ~(15u << sh)) | (p >> 24 & 15) << sh;
                     }
@@ -450,7 +456,6 @@ static void ReplaceRows(u32 *w, u32 *end, struct PgRow *row, u32 n, u32 bloom)
 // screen's palette version colours. Each patch: VRAM offset from 0x06000000 (bits 0-22), which half of the byte (23),
 // the entry it had (24-27), the spare one (28-31). Re-applied every frame while the screen shows (the game may redraw), undone
 // when it changes.
-static u16 *sPatchVal;       // each patched VRAM word as the theme left it (after sPatch's items), for the undo
 static void TilePatches(BOOL undo)
 {
     u32 i, lastA = 0, ok = 0;
@@ -745,6 +750,58 @@ static void *PageAlloc(u32 size)
     return p;
 }
 
+// The page's bytes read in one go when the system heap has room for them and the page's own memory (a card read per
+// item - about ten - made a page come too late for one-frame states: the bag pocket's press): PgSeek / PgRead from
+// memory while inside them, else from the card. Its end: the next page's start (pages follow in fingerprint order)
+#define GF_ExpHeap_FndGetTotalFreeSize ((u32 (*)(u32))(0x0201ABEC | 1))
+static u8 *sPgBuf;
+static u32 sPgBase, sPgLen, sPgPos;
+static void PgLoad(u32 *file, u32 at)
+{
+    u32 k, end = sFuzzyAt, len;
+    for (k = 0; k < sSigCount; k++)
+        if (!(sSigs[k * 2 + 1] >> 31) && sSigs[k * 2 + 1] > at && sSigs[k * 2 + 1] < end)
+            end = sSigs[k * 2 + 1];
+    sPgBuf = NULL;
+    sPgPos = at;
+    len = end - at;
+    if (end <= at || len > 0x2000 || GF_ExpHeap_FndGetTotalFreeSize(0) < 2 * len + 0x5800 || (sPgBuf = SafeAlloc(len)) == NULL)
+        return;
+    FS_SeekFile(file, at, 0);
+    if ((u32)FS_ReadFile(file, sPgBuf, len) != len)
+    {
+        Heap_Free(sPgBuf);
+        sPgBuf = NULL;
+        return;
+    }
+    sPgBase = at;
+    sPgLen = len;
+}
+static void PgSeek(u32 *file, s32 off, u32 whence)
+{
+    sPgPos = whence == 1 ? sPgPos + off : (u32)off;
+    if (sPgBuf == NULL || sPgPos < sPgBase || sPgPos > sPgBase + sPgLen)
+        FS_SeekFile(file, (s32)sPgPos, 0);
+}
+static s32 PgRead(u32 *file, void *dst, s32 n)
+{
+    if (sPgBuf != NULL && sPgPos >= sPgBase && sPgPos + (u32)n <= sPgBase + sPgLen)
+    {
+        vu8 *d = dst;                            // (volatile: no library memcpy call - the blob has none)
+        const u8 *src = sPgBuf + (sPgPos - sPgBase);
+        s32 k;
+        for (k = 0; k < n; k++)
+            d[k] = src[k];
+        sPgPos += (u32)n;
+        return n;
+    }
+    FS_SeekFile(file, (s32)sPgPos, 0);
+    n = FS_ReadFile(file, dst, n);
+    if (n > 0)
+        sPgPos += (u32)n;
+    return n;
+}
+
 static void ShowScreen(u32 sig)
 {
     u32 *file, hdr[3], ent[2], mid, n = 0, i, bloom = 0, pair[2];
@@ -755,32 +812,33 @@ static void ShowScreen(u32 sig)
     gRhScreenSig.shown = sig;
     if ((file = PgFile()) == NULL)
         return;
-    FS_SeekFile(file, ent[1], 0);
-    FS_ReadFile(file, &n, 4);
+    PgLoad(file, ent[1]);
+    PgSeek(file, ent[1], 0);
+    PgRead(file, &n, 4);
     mid = n;                         // (the real count, for the tile patches' offset)
     hdr[1] = (sRowsAt - 16) / 8;
     // its tile patches: after the pairs
-    FS_SeekFile(file, ent[1] + 4 + mid * 8, 0);
+    PgSeek(file, ent[1] + 4 + mid * 8, 0);
     n = 0;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 8192)
+    if (PgRead(file, &n, 4) == 4 && n != 0 && n <= 8192)
     {
         sPatch = PageAlloc(n * 6);
         if (sPatch != NULL)
         {
-            FS_ReadFile(file, sPatch, n * 4);
+            PgRead(file, sPatch, n * 4);
             sPatchVal = (u16 *)(sPatch + n);
             sPatchCount = n;
         }
     }
     // its palette index patches: after the tile patches (what each entry had is kept, to undo them)
-    FS_SeekFile(file, ent[1] + 4 + mid * 8 + 4 + n * 4, 0);
+    PgSeek(file, ent[1] + 4 + mid * 8 + 4 + n * 4, 0);
     pair[1] = ent[1] + 4 + mid * 8 + 4 + n * 4;
-    if (FS_ReadFile(file, &n, 4) == 4 && n != 0 && n <= 1024)
+    if (PgRead(file, &n, 4) == 4 && n != 0 && n <= 1024)
     {
         sIndexUndo = PageAlloc(n * 12);
         if (sIndexUndo != NULL)
         {
-            FS_ReadFile(file, sIndexUndo + n, n * 4);
+            PgRead(file, sIndexUndo + n, n * 4);
             for (i = 0; i < n; i++)
             {
                 pair[0] = sIndexUndo[n + i];
@@ -798,21 +856,21 @@ static void ShowScreen(u32 sig)
         n = 0;
     // its register patches: after the index patches
     pair[1] += 4 + n * 4;
-    FS_SeekFile(file, pair[1], 0);
-    if (FS_ReadFile(file, &n, 4) != 4 || n > 16)
+    PgSeek(file, pair[1], 0);
+    if (PgRead(file, &n, 4) != 4 || n > 16)
         n = 0;
     if (n != 0)
     {
         sRegs = PageAlloc(n * 4);
         if (sRegs != NULL)
         {
-            FS_ReadFile(file, sRegs, n * 4);
+            PgRead(file, sRegs, n * 4);
             sRegCount = n;
         }
     }
     // its row rules: after the register patches; then its sprite copies (read in order: the rules' size varies)
-    FS_SeekFile(file, pair[1] + 4 + n * 4, 0);
-    i = FS_ReadFile(file, &n, 4) == 4 && n <= 4;
+    PgSeek(file, pair[1] + 4 + n * 4, 0);
+    i = PgRead(file, &n, 4) == 4 && n <= 4;
     if (i && n != 0 && (sRules = PageAlloc(n * sizeof(struct RowRule))) == NULL)
         i = FALSE;
     pair[0] = i;                       // (the file is at the sprite copies)
@@ -822,23 +880,23 @@ static void ShowScreen(u32 sig)
         {
             struct RowRule *r = &sRules[i];
             u32 k, c = 0;
-            FS_ReadFile(file, r->w, 8);
+            PgRead(file, r->w, 8);
             for (k = 0; k < 16; k++)
                 c += r->w[1] >> (16 + k) & 1;
-            FS_ReadFile(file, r->col, (c + (c & 1)) * 2);
+            PgRead(file, r->col, (c + (c & 1)) * 2);
             for (k = 0; k < 256; k++)
                 r->save[k] = 0;
         }
         sRuleCount = n;
     }
     bloom = 0xFFFFFFFF;                  // (the file's place after the sprite copies: the rows inline; unknown)
-    if (pair[0] && FS_ReadFile(file, &n, 4) == 4)
+    if (pair[0] && PgRead(file, &n, 4) == 4)
         bloom = n;
     if (bloom != 0xFFFFFFFF && n != 0 && n <= 512  // (512: pixel patches, overlay tiles: ObjCopyTiles)
         && (sObjCopies = PageAlloc(n * sizeof(struct ObjCopy))) != NULL)
     {
         // (one read for all: a read per entry - ~100 with pixel patches - cost frames when the screen came up)
-        FS_ReadFile(file, sObjCopies, n * 8);
+        PgRead(file, sObjCopies, n * 8);
         for (i = n; i-- > 0;)                    // (spread out to 12-byte entries, from the end: no overlap)
         {
             u32 a = ((u32 *)sObjCopies)[2 * i], b = ((u32 *)sObjCopies)[2 * i + 1];
@@ -888,10 +946,10 @@ static void ShowScreen(u32 sig)
         if (at != 0xFFFFFFFF)
         {
             if (sObjCopies == NULL)
-                FS_SeekFile(file, at * 8, 1);    // (sprite copies not kept: past them)
+                PgSeek(file, at * 8, 1);    // (sprite copies not kept: past them)
             // (all the pairs' rows in one read, through the rows' own memory from the end: 64 bytes each into 72-byte
             // items, spread out from the last one - no overlap)
-            if (FS_ReadFile(file, row, n * 64) == (s32)(n * 64))
+            if (PgRead(file, row, n * 64) == (s32)(n * 64))
                 for (i = n; i-- > 0;)
                 {
                     vu32 *src = (vu32 *)row + i * 16;    // (volatile: no library memmove call - the blob has none)
@@ -910,12 +968,12 @@ static void ShowScreen(u32 sig)
         {
             if (at == 0xFFFFFFFF)                // (the old way: the pair's row numbers, the rows from the list)
             {
-                FS_SeekFile(file, ent[1] + 4 + i * 8, 0);
-                FS_ReadFile(file, pair, 8);
-                FS_SeekFile(file, 16 + hdr[1] * 8 + pair[0] * 32, 0);
-                FS_ReadFile(file, row[2 * i].c, 32);
-                FS_SeekFile(file, 16 + hdr[1] * 8 + pair[1] * 32, 0);
-                FS_ReadFile(file, row[2 * i + 1].c, 32);
+                PgSeek(file, ent[1] + 4 + i * 8, 0);
+                PgRead(file, pair, 8);
+                PgSeek(file, 16 + hdr[1] * 8 + pair[0] * 32, 0);
+                PgRead(file, row[2 * i].c, 32);
+                PgSeek(file, 16 + hdr[1] * 8 + pair[1] * 32, 0);
+                PgRead(file, row[2 * i + 1].c, 32);
             }
             row[2 * i].target = 2 * i + 1;
             row[2 * i + 1].target = 2 * i + 1;
@@ -927,6 +985,9 @@ static void ShowScreen(u32 sig)
     for (i = 0; i < sIndexCount; i++)
         SetIndex(sIndexUndo[sIndexCount + i] >> 16 & 1023, IdxWant(sIndexUndo[sIndexCount + i]));
 
+    if (sPgBuf != NULL)
+        Heap_Free(sPgBuf);
+    sPgBuf = NULL;
 }
 
 // The register patches again in every vertical blank (vblank queue, after the game's own tasks there): ThemeTask runs
@@ -1096,7 +1157,18 @@ static void ThemeTask_(void *task, void *data)
         sFuzzyNext = fz;
         if (i >> 31)
         {
-            v = (sig ^ (((vu16 *)0x05000000)[i & 1023] & 0x7FFF)) * 16777619u;
+            // (the key entry's colour as the game has it: where the theme's colour is in (IDX_MARK), the game's from the
+            // index patches' undo - else a version that colours its own key flipped back and forth, the field menu's
+            // pressed POKeMON button and the unpressed menu)
+            u32 kc = ((vu16 *)0x05000000)[i & 1023], q;
+            if (kc & IDX_MARK)
+                for (q = 0; q < sIndexCount; q++)
+                    if ((sIndexUndo[q] >> 16 & 1023) == (i & 1023))
+                    {
+                        kc = sIndexUndo[2 * sIndexCount + q];
+                        break;
+                    }
+            v = (sig ^ (kc & 0x7FFF)) * 16777619u;
             if (FindPage(v) == 0 && sig == sLastBase)
                 v = sLastSig;
             else if (FindPage(v) == 0)            // (no version's colour: the default version, the owner's
