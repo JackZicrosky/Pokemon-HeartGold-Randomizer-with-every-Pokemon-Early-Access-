@@ -1700,7 +1700,9 @@ static void ObjCopies(u32 offset, u32 size, u16 *obuf)
             for (k = lo; k < hi; k++)
             {
                 vu16 *e2 = oam + k * 4;
-                if ((e2[0] & 0x300) != 0x200 && (e2[0] >> 10 & 3) == 1 && (e2[2] >> 12) == pal)
+                // (w1 bit 11: sprites of that row in any mode - the field menu's panel is drawn solid while a button
+                // is pressed, the owner's colours still)
+                if ((e2[0] & 0x300) != 0x200 && ((sObjCopies[n].w[1] >> 11 & 1) || (e2[0] >> 10 & 3) == 1) && (e2[2] >> 12) == pal)
                 {
                     e2[0] = (u16)(e2[0] & ~0x0C00);
                     e2[2] = (u16)((e2[2] & 0x0FFF) | (dst & 15) << 12);

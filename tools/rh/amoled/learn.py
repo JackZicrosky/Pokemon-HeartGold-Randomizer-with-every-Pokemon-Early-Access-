@@ -1119,7 +1119,8 @@ for sc_, idx_ in SCANLINES.items():
 # see-through sprites drawn solid with the owner's colours (rhtheme/ ObjCopies translucent kind, w1 bit 10): the field
 # menu's registered-item panel is blended over the screen; the owner's colours for it are exact ones. (screen: engine,
 # sprite row) - the colours per entry from the owner's picture where those sprites are on top
-SEMI_SOLID = {'25_field_menu.png': (1, 10)}
+SEMI_SOLID = {'25_field_menu.png': (1, 10), '73_field_menu_pokemon_pressed.png': (1, 10)}
+SEMI_SOLID_ANY = {'73_field_menu_pokemon_pressed.png'}   # (the panel drawn solid while the button is pressed)
 for sc_, (eng_, pal_) in SEMI_SOLID.items():
     if sc_ not in screens:
         continue
@@ -1148,7 +1149,7 @@ for sc_, (eng_, pal_) in SEMI_SOLID.items():
         ipd[base0 + nr * 16 + j_] = (want_[j_].most_common(1)[0][0] if want_[j_]
                                      else dsrender.colour(vb, base0 + pal_ * 16 + j_) & 0x7FFF)
     screens[sc_]['ipatch'] = sorted(ipd.items())
-    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [(eng_ | pal_ << 4 | 1 << 9, nr | 1 << 10)]
+    screens[sc_]['objcopy'] = screens[sc_].get('objcopy', []) + [(eng_ | pal_ << 4 | 1 << 9, nr | 1 << 10 | (1 << 11 if sc_ in SEMI_SOLID_ANY else 0))]
     print('semi solid', sc_, 'row', pal_, '->', nr, {j_: c_.most_common(1)[0][0] for j_, c_ in want_.items() if c_})
 for sc_, rules_ in TRANSLUCENT.items():
     if sc_ in screens:
